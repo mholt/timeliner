@@ -113,11 +113,27 @@ $ timeliner get-latest google_photos/you@gmail.com
 This will get only the items timestamped newer than the newest item in your timeline.
 
 
+### Reprocessing items
+
+By default, Timeliner will not re-process items that are already in your timeline. However, Timeliner will reprocess items already in your timeline if:
+
+- You run with the `-integrity` flag which enables integrity checks, and an item's data file fails the integrity check. In that case, the item will be reprocessed to restore its correct data.
+
+- The item has changed on the data source _and the data source indicates this change somehow_. However, very few (if any?) data sources actually provide a hash or ETag to help us compare whether a resource has changed. (HTTP sure has it nice, huh...)
+
+Since it is often impossible to know without actually downloading the whole item whether it has changed, you can run Timeliner with the `-reprocess` flag to do a "full reprocess" which indiscriminately reprocesses every item, just in case it changed. In other words, a reprocess will update your local copy with the source's latest.
+
+TODO: Maybe we should change the flag name to `-update`?
+
+
 ### Pruning your timeline
 
 Suppose you downloaded a bunch of photos with Timeliner that you later deleted from Google Photos. Timeliner can remove those items from your local timeline, too, to save disk space and keep things clean.
 
 However, this involves doing a complete listing of all the items. Pruning happens at the end. Any items not seen in the listing will be deleted. This also means that a full, uninterrupted listing is required, since resuming from a checkpoint yields an incomplete file listing. Pruning after a resumed listing will result in an error. (There's a TODO to improve this situation -- feel free to contribute! We just need to preserve the item listing along with the checkpoint.)
+
+To schedule a prune, just run with the `-prune` flag: `timeliner -prune get-all ...`.
+
 
 
 ### More information about each data source
@@ -125,20 +141,37 @@ However, this involves doing a complete listing of all the items. Pruning happen
 Congratulations, you've [graduated to the wiki pages](https://github.com/mholt/timeliner/wiki) to learn more about how to set up and use each data source.
 
 
+
+## Motivation and long-term vision
+
+The motivation for this project is two-fold. Both press upon me with a sense of urgency, which is why I dedicated some nights and weekends to work on this.
+
+1) Connecting with my family -- both living and deceased -- is important to me and my close relatives. But I wish we had more insights into the lives and values of those who came before us. What better time than right now to start collecting personal histories from all available sources and develop a rich timeline of our life for our family, and maybe even for our own reference or nostalgia.
+
+2) Our lives are better-documented than any before us, but the documentation is more ephemeral than any before us, too. We lose control of our data by relying on centralized, proprietary cloud services which are useful today, and gone tomorrow. I wrote Timeliner because now is the time to liberate my data from corporations who don't own it, yet who have the only copy of it. This reality has made me feel uneasy for years, and it's not going away soon. Timeliner makes it bearable.
+
+Imagine being able to pull up a single screen with your data from any and all of your online accounts and services -- while offline. And there you see so many aspects of your life at a glance: your photos and videos, social media posts, locations on a map and how you got there, emails and letters, documents, health and physical activities, and even your GitHub projects (if you're like me), for any given day. You can "zoom out" and get the big picture. Machine learning algorithms could suggest major clusters based on your content to summarize your days, months, or years, and from that, even recommend printing physical memorabilia. It's like a highly-detailed, automated journal, fully in your control, which you can add to in the app: augment it with your own thoughts like a regular journal.
+
+Then cross-reference your own timeline with a global public timeline: see how locations you went to changed over time, or what major news events may have affected you, or what the political/social climate was like at the time.
+
+Or translate the projection sideways, and instead of looking at time cross-sections, look at cross-sections of your timeline by media type: photos, posts, location, sentiment. Look at plots, charts, graphs, of your physical activity.
+
+And all of this runs on your own computer: no one else has access to it, no one else owns it, but you.
+
+
 ## Viewing your Timeline
 
-There is not yet a nice, all-in-one viewer for the timeline. I've just been using [Table Plus](https://tableplus.io) to browse the SQLite database, and my file browser to look at the files in it. The important thing is that you have them, at least.
+There is not yet a viewer for the timeline. For now, I've just been using [Table Plus](https://tableplus.io) to browse the SQLite database, and my file browser to look at the files in it. The important thing is that you have them, at least.
 
 However, a viewer would be really cool. It's something I've been wanting to do but don't have time for right now. Contributions are welcomed along these lines, but this feature _must_ be thoroughly discussed before any pull requests will be accepted to implement a timeline viewer. Thanks!
 
+
+## Notes
+
+Yeah, I know this is very similar to what [Perkeep](https://perkeep.org/) does. Perkeep is a way cooler project in my opinion. However, Perkeep is more about storage and sync, whereas Timeliner is more focused on constructing relationships between items and projecting your digital life onto a single timeline. If Perkeep is my unified personal data storage, then Timeliner is my automatic journal. (Believe me, my heart sank after I realized that I was almost rewriting parts of Perkeep, until I decided that the two are different enough to warrant a separate project.)
 
 
 ## License
 
 This project is licensed with AGPL. I chose this license because I do not want others to make proprietary software using this package. The point of this project is liberation of and control over one's own, personal data, and I want to ensure that this project won't be used in anything that would perpetuate the walled garden dilemma we already face today.
-
-
-## Notes
-
-Yes, I know this is very similar to what [Perkeep](https://perkeep.org/) does. Perkeep is a way cooler project in my opinion. However, Perkeep is more about storage and sync, whereas Timeliner is more focused on constructing relationships between items and projecting your digital life onto a single timeline. If Perkeep is my unified personal data storage, then Timeliner is my automatic journal. (Believe me, my heart sank after I realized that I was almost rewriting parts of Perkeep, until I decided that the two are different enough to warrant a separate project.)
 
