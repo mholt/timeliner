@@ -291,18 +291,13 @@ func (c *Client) getCollectionsNextPage(itemChan chan<- *timeliner.ItemGraph,
 		coll.Name = &album.Name
 		coll.OriginalID = album.MediaID
 
-		// TODO...
-		log.Println("ALBUM NAME:", *coll.Name)
-
 		// add each photo to the collection, page by page
 		if album.Photos != nil {
 			var counter int
 
 			for {
-				log.Println("**** NEXT PAGE ****")
 				for i := range album.Photos.Data {
 					album.Photos.Data[i].fillFields("photo")
-					log.Println("PHOTO:", album.Photos.Data[i].MediaID)
 
 					coll.Items = append(coll.Items, timeliner.CollectionItem{
 						Item:     &album.Photos.Data[i],
@@ -310,8 +305,6 @@ func (c *Client) getCollectionsNextPage(itemChan chan<- *timeliner.ItemGraph,
 					})
 					counter++
 				}
-
-				log.Println("ALBUM LEN:", len(coll.Items), *coll.Name)
 
 				ig := timeliner.NewItemGraph(nil)
 				ig.Collections = append(ig.Collections, coll)
@@ -321,8 +314,6 @@ func (c *Client) getCollectionsNextPage(itemChan chan<- *timeliner.ItemGraph,
 				if album.Photos.Paging.Next == nil {
 					break
 				}
-
-				log.Println("PHOTOS NEXT:", *album.Photos.Paging.Next)
 
 				// request next page
 				var nextPage *fbMediaPage
@@ -352,7 +343,6 @@ func (c *Client) apiRequestFullURL(method, fullURL string, reqBodyData, respInto
 		}
 		reqBody = bytes.NewReader(reqBodyBytes)
 	}
-	log.Println(fullURL)
 
 	req, err := http.NewRequest(method, fullURL, reqBody)
 	if err != nil {
