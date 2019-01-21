@@ -207,7 +207,7 @@ func (c *Client) getAlbumsAndTheirItemsNextPage(itemChan chan<- *timeliner.ItemG
 	}
 
 	var respBody listAlbums
-	err := c.apiRequest("GET", "/albums?"+vals.Encode(), nil, &respBody)
+	err := c.apiRequestWithRetry("GET", "/albums?"+vals.Encode(), nil, &respBody)
 	if err != nil {
 		return pageToken, err
 	}
@@ -283,48 +283,87 @@ func (c *Client) getAlbumItems(itemChan chan<- *timeliner.ItemGraph, album gpAlb
 
 func (c *Client) pageOfMediaItems(reqBody listMediaItemsRequest) (listMediaItems, error) {
 	var respBody listMediaItems
-	err := c.apiRequest("POST", "/mediaItems:search", reqBody, &respBody)
+	err := c.apiRequestWithRetry("POST", "/mediaItems:search", reqBody, &respBody)
 	return respBody, err
 }
 
-func (c *Client) apiRequest(method, endpoint string, reqBodyData, respInto interface{}) error {
+func (c *Client) apiRequestWithRetry(method, endpoint string, reqBodyData, respInto interface{}) error {
+	// do the request in a loop for controlled retries on error
+	var err error
+	const maxTries = 10
+	for i := 0; i < maxTries; i++ {
+		var resp *http.Response
+		resp, err = c.apiRequest(method, endpoint, reqBodyData)
+		if err != nil {
+			log.Printf("[ERROR][%s/%s] Doing API request: >>> %v <<< - retrying... (attempt %d/%d)",
+				DataSourceID, c.userID, err, i+1, maxTries)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			bodyText, err2 := ioutil.ReadAll(io.LimitReader(resp.Body, 1024*256))
+			resp.Body.Close()
+
+			if err2 == nil {
+				err = fmt.Errorf("HTTP %d: %s: >>> %s <<<", resp.StatusCode, resp.Status, bodyText)
+			} else {
+				err = fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+			}
+
+			// extra-long pause for rate limiting errors
+			if resp.StatusCode == http.StatusTooManyRequests {
+				log.Printf("[ERROR][%s/%s] Rate limited: HTTP %d: %s: %s - retrying in 35 seconds... (attempt %d/%d)",
+					DataSourceID, c.userID, resp.StatusCode, resp.Status, bodyText, i+1, maxTries)
+				time.Sleep(35 * time.Second)
+				continue
+			}
+
+			// for any other error, wait a couple seconds and retry
+			log.Printf("[ERROR][%s/%s] Bad API response: %v - retrying... (attempt %d/%d)",
+				DataSourceID, c.userID, err, i+1, maxTries)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		// successful request; read the response body
+		err = json.NewDecoder(resp.Body).Decode(&respInto)
+		if err != nil {
+			resp.Body.Close()
+			err = fmt.Errorf("decoding JSON: %v", err)
+			log.Printf("[ERROR][%s/%s] Reading API response: %v - retrying... (attempt %d/%d)",
+				DataSourceID, c.userID, err, i+1, maxTries)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		// successful read; we're done here
+		resp.Body.Close()
+		break
+	}
+
+	return err
+}
+
+func (c *Client) apiRequest(method, endpoint string, reqBodyData interface{}) (*http.Response, error) {
 	var reqBody io.Reader
 	if reqBodyData != nil {
 		reqBodyBytes, err := json.Marshal(reqBodyData)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		reqBody = bytes.NewReader(reqBodyBytes)
 	}
 
 	req, err := http.NewRequest(method, apiBase+endpoint, reqBody)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if reqBody != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("performing search request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyText, err := ioutil.ReadAll(io.LimitReader(resp.Body, 1024*256))
-		if err == nil {
-			return fmt.Errorf("HTTP %d: %s: %s", resp.StatusCode, resp.Status, bodyText)
-		}
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
-	}
-
-	err = json.NewDecoder(resp.Body).Decode(&respInto)
-	if err != nil {
-		return fmt.Errorf("decoding JSON: %v", err)
-	}
-
-	return nil
+	return c.HTTPClient.Do(req)
 }
 
 func dateRange(timeframe timeliner.Timeframe) listMediaItemsFilterRange {

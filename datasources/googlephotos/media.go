@@ -3,6 +3,7 @@ package googlephotos
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"strconv"
@@ -62,16 +63,36 @@ func (m mediaItem) DataFileReader() (io.ReadCloser, error) {
 		u += "=dv"
 	}
 
-	resp, err := http.Get(u)
-	if err != nil {
-		return nil, fmt.Errorf("getting media contents: %v", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+	const maxTries = 5
+	var err error
+	var resp *http.Response
+	for i := 0; i < maxTries; i++ {
+		resp, err = http.Get(u)
+		if err != nil {
+			err = fmt.Errorf("getting media contents: %v", err)
+			log.Printf("[ERROR][%s] %v - retrying... (attempt %d/%d)", DataSourceID, err, i+1, maxTries)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			bodyText, err2 := ioutil.ReadAll(io.LimitReader(resp.Body, 1024*256))
+			resp.Body.Close()
+
+			if err2 == nil {
+				err = fmt.Errorf("HTTP %d: %s: >>> %s <<<", resp.StatusCode, resp.Status, bodyText)
+			} else {
+				err = fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+			}
+
+			log.Printf("[ERROR][%s] Bad response: %v - retrying... (attempt %d/%d)",
+				DataSourceID, err, i+1, maxTries)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+		break
 	}
 
-	return resp.Body, nil
+	return resp.Body, err
 }
 
 func (m mediaItem) DataFileHash() []byte {
