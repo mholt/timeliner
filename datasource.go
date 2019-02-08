@@ -113,7 +113,7 @@ func (ds DataSource) authFunc() AuthenticateFn {
 		return ds.Authenticate
 	} else if ds.OAuth2.ProviderID != "" {
 		return func(userID string) ([]byte, error) {
-			return authorizeWithOAuth2(ds.OAuth2.ProviderID, ds.OAuth2.Scopes)
+			return authorizeWithOAuth2(ds.OAuth2)
 		}
 	}
 	return nil

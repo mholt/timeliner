@@ -9,10 +9,10 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// OAuth2TokenSource returns a TokenSource for the OAuth2 provider
+// OAuth2AppSource returns an oauth2client.App for the OAuth2 provider
 // with the given ID. Programs using data sources that authenticate
-// with OAuth2 MUST set this field, or the program will panic.
-var OAuth2TokenSource func(providerID string, scopes []string) (oauth2client.App, error)
+// with OAuth2 MUST set this variable, or the program will panic.
+var OAuth2AppSource func(providerID string, scopes []string) (oauth2client.App, error)
 
 // NewOAuth2HTTPClient returns a new HTTP client which performs
 // HTTP requests that are authenticated with an oauth2.Token
@@ -31,14 +31,14 @@ func (acc Account) NewOAuth2HTTPClient() (*http.Client, error) {
 	// load the service's "oauth app", which can provide both tokens and
 	// oauth configs -- in this case, we need the oauth config; we should
 	// already have a token
-	oapp, err := OAuth2TokenSource(acc.ds.OAuth2.ProviderID, acc.ds.OAuth2.Scopes)
+	oapp, err := OAuth2AppSource(acc.ds.OAuth2.ProviderID, acc.ds.OAuth2.Scopes)
 	if err != nil {
 		return nil, fmt.Errorf("getting token source for %s: %v", acc.DataSourceID, err)
 	}
 
 	// obtain a token source from the oauth's config so that it can keep
 	// the token refreshed if it expires
-	src := oapp.Config().TokenSource(context.Background(), tkn)
+	src := oapp.TokenSource(context.Background(), tkn)
 
 	// finally, create an HTTP client that authenticates using the token,
 	// but wrapping the underlying token source so we can persist any
@@ -51,14 +51,14 @@ func (acc Account) NewOAuth2HTTPClient() (*http.Client, error) {
 	}), nil
 }
 
-// authorizeWithOAuth2 gets an initial OAuth2 token from the user. It
-// panics if OAuth2TokenSource
-func authorizeWithOAuth2(providerID string, scopes []string) ([]byte, error) {
-	src, err := OAuth2TokenSource(providerID, scopes)
+// authorizeWithOAuth2 gets an initial OAuth2 token from the user.
+// It requires OAuth2AppSource to be set or it will panic.
+func authorizeWithOAuth2(oc OAuth2) ([]byte, error) {
+	src, err := OAuth2AppSource(oc.ProviderID, oc.Scopes)
 	if err != nil {
 		return nil, fmt.Errorf("getting token source: %v", err)
 	}
-	tkn, err := src.Token()
+	tkn, err := src.InitialToken()
 	if err != nil {
 		return nil, fmt.Errorf("getting token from source: %v", err)
 	}

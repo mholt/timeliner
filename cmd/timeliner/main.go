@@ -199,7 +199,7 @@ func loadConfig() error {
 	}
 
 	// TODO: Should this be passed into timeliner.Open() instead?
-	timeliner.OAuth2TokenSource = func(providerID string, scopes []string) (oauth2client.App, error) {
+	timeliner.OAuth2AppSource = func(providerID string, scopes []string) (oauth2client.App, error) {
 		cfg, ok := oauth2Configs[providerID]
 		if !ok {
 			return nil, fmt.Errorf("unsupported provider: %s", providerID)

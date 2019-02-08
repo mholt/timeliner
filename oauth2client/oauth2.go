@@ -1,6 +1,7 @@
 package oauth2client
 
 import (
+	"context"
 	mathrand "math/rand"
 	"net/http"
 	"time"
@@ -41,11 +42,11 @@ type (
 		AuthCodeURL string
 	}
 
-	// App provides methods for obtaining an
-	// OAuth2 config and an initial token.
+	// App provides a way to get an initial OAuth2 token
+	// as well as a continuing token source.
 	App interface {
-		oauth2.TokenSource
-		Config() *oauth2.Config
+		InitialToken() (*oauth2.Token, error)
+		TokenSource(context.Context, *oauth2.Token) oauth2.TokenSource
 	}
 )
 

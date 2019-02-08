@@ -414,7 +414,6 @@ type checkpointInfo struct {
 // save records the checkpoint. It is NOT thread-safe,
 // so calls to this must be protected by a mutex.
 func (ch *checkpointInfo) save(ctx context.Context) {
-	log.Printf("CHECKPOINTING: %+v", ch)
 	gobBytes, err := timeliner.MarshalGob(ch)
 	if err != nil {
 		log.Printf("[ERROR][%s] Encoding checkpoint: %v", DataSourceID, err)

@@ -46,27 +46,8 @@ type RemoteAppSource struct {
 	AuthCodeGetter Getter
 }
 
-// Config returns an OAuth2 config.
-func (s RemoteAppSource) Config() *oauth2.Config {
-	redirURL := s.RedirectURL
-	if redirURL == "" {
-		redirURL = DefaultRedirectURL
-	}
-
-	return &oauth2.Config{
-		ClientID:     "placeholder",
-		ClientSecret: "placeholder",
-		RedirectURL:  redirURL,
-		Scopes:       s.Scopes,
-		Endpoint: oauth2.Endpoint{
-			AuthURL:  s.ProxyURL + "/proxy/" + s.ProviderID + "/auth",
-			TokenURL: s.ProxyURL + "/proxy/" + s.ProviderID + "/token",
-		},
-	}
-}
-
-// Token obtains a token.
-func (s RemoteAppSource) Token() (*oauth2.Token, error) {
+// InitialToken obtains an initial token using s.AuthCodeGetter.
+func (s RemoteAppSource) InitialToken() (*oauth2.Token, error) {
 	if s.AuthCodeGetter == nil {
 		s.AuthCodeGetter = Browser{}
 	}
@@ -74,7 +55,7 @@ func (s RemoteAppSource) Token() (*oauth2.Token, error) {
 		s.AuthURLMode = DirectAuthURLMode
 	}
 
-	cfg := s.Config()
+	cfg := s.config()
 
 	// obtain a state value and auth URL
 	var stateVal, authURL string
@@ -145,6 +126,30 @@ func (s RemoteAppSource) getProxiedAuthURL(cfg *oauth2.Config) (state string, au
 	state = State()
 	authURL = cfg.AuthCodeURL(state, oauth2.AccessTypeOffline)
 	return
+}
+
+// config builds an OAuth2 config from s.
+func (s RemoteAppSource) config() *oauth2.Config {
+	redirURL := s.RedirectURL
+	if redirURL == "" {
+		redirURL = DefaultRedirectURL
+	}
+
+	return &oauth2.Config{
+		ClientID:     "placeholder",
+		ClientSecret: "placeholder",
+		RedirectURL:  redirURL,
+		Scopes:       s.Scopes,
+		Endpoint: oauth2.Endpoint{
+			AuthURL:  s.ProxyURL + "/proxy/" + s.ProviderID + "/auth",
+			TokenURL: s.ProxyURL + "/proxy/" + s.ProviderID + "/token",
+		},
+	}
+}
+
+// TokenSource returns a token source for s.
+func (s RemoteAppSource) TokenSource(ctx context.Context, tkn *oauth2.Token) oauth2.TokenSource {
+	return s.config().TokenSource(ctx, tkn)
 }
 
 // AuthURLMode describes what kind of auth URL a
