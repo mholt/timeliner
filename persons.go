@@ -27,7 +27,7 @@ func (t *Timeline) getPerson(dataSourceID, userID, name string) (Person, error) 
 		if err != nil {
 			return Person{}, fmt.Errorf("getting person ID: %v", err)
 		}
-		_, err = t.db.Exec(`INSERT INTO person_identities
+		_, err = t.db.Exec(`INSERT OR IGNORE INTO person_identities
 			(person_id, data_source_id, user_id) VALUES (?, ?, ?)`,
 			p.ID, dataSourceID, userID)
 		if err != nil {

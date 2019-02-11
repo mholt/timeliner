@@ -35,12 +35,14 @@ func (wc *WrappedClient) GetLatest(ctx context.Context) error {
 
 	// get date of most recent item for this account
 	var mostRecent int64
-	err := wc.tl.db.QueryRow(`SELECT timestamp FROM items
+	var mostRecentOriginalID string
+	err := wc.tl.db.QueryRow(`SELECT timestamp, original_id
+		FROM items
 		WHERE account_id=?
 		ORDER BY timestamp DESC
-		LIMIT 1`, wc.acc.ID).Scan(&mostRecent)
+		LIMIT 1`, wc.acc.ID).Scan(&mostRecent, &mostRecentOriginalID)
 	if err != nil && err != sql.ErrNoRows {
-		return fmt.Errorf("getting most recent item timestamp: %v", err)
+		return fmt.Errorf("getting most recent item: %v", err)
 	}
 
 	// constrain the pull to the recent timeframe
@@ -48,6 +50,9 @@ func (wc *WrappedClient) GetLatest(ctx context.Context) error {
 	if mostRecent > 0 {
 		ts := time.Unix(mostRecent, 0)
 		timeframe.Since = &ts
+	}
+	if mostRecentOriginalID != "" {
+		timeframe.SinceItemID = &mostRecentOriginalID
 	}
 
 	wg, ch := wc.beginProcessing(concurrentCuckoo{}, false, false)

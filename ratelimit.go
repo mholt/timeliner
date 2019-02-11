@@ -23,7 +23,11 @@ func (acc Account) NewRateLimitedRoundTripper(rt http.RoundTripper) http.RoundTr
 
 	if !ok && acc.ds.RateLimit.RequestsPerHour > 0 {
 		secondsBetweenReqs := 60.0 / (float64(acc.ds.RateLimit.RequestsPerHour) / 60.0)
-		reqInterval := time.Duration(secondsBetweenReqs) * time.Second
+		millisBetweenReqs := secondsBetweenReqs * 1000.0
+		reqInterval := time.Duration(millisBetweenReqs) * time.Millisecond
+		if reqInterval < minInterval {
+			reqInterval = minInterval
+		}
 
 		rl.ticker = time.NewTicker(reqInterval)
 		rl.token = make(chan struct{}, rl.BurstSize)
@@ -57,3 +61,5 @@ func (rt rateLimitedRoundTripper) RoundTrip(req *http.Request) (*http.Response, 
 }
 
 var rateLimiters = make(map[string]RateLimit)
+
+const minInterval = 100 * time.Millisecond

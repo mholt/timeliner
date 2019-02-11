@@ -30,7 +30,7 @@ func init() {
 	flag.BoolVar(&reprocess, "reprocess", reprocess, "Reprocess every item that has not been modified locally (download-all or import only)")
 
 	flag.BoolVar(&twitterRetweets, "twitter-retweets", twitterRetweets, "Twitter: include retweets")
-	flag.BoolVar(&twitterReplies, "twitter-replies", twitterReplies, "Twitter: include replies")
+	flag.BoolVar(&twitterReplies, "twitter-replies", twitterReplies, "Twitter: include replies that are not just replies to self")
 }
 
 func main() {

@@ -148,7 +148,8 @@ type Client interface {
 	// relationships can be stored. If the relationships are not
 	// discovered until later, that's OK: item processing is
 	// idempotent, so repeating an item from earlier will have no
-	// adverse effects.
+	// adverse effects (this is possible because a unique ID is
+	// required for each item).
 	//
 	// Implementations must honor the context's cancellation. If
 	// ctx.Done() is closed, the function should return. Typically,
@@ -169,10 +170,15 @@ type Client interface {
 	// filename is not specified but required, an error should be
 	// returned.
 	//
-	// opt.Timeframe consists of two optional timestamp values.
-	// If set, item listings should be bounded in the respective
-	// direction by that timestamp. If timeframes are not supported,
-	// this should be documented, but an error need not be returned.
+	// opt.Timeframe consists of two optional timestamp and/or item
+	// ID values. If set, item listings should be bounded in the
+	// respective direction by that timestamp / item ID. (Items
+	// are assumed to be part of a chronology; both timestamp and
+	// item ID *may be* provided, when possible, to accommodate
+	// data sources which do not constrain by timestamp but which
+	// do by item ID instead.) It should be documented if timeframes
+	// are not supported, but an error need not be returned if it
+	// cannot be honored.
 	//
 	// opt.Checkpoint consists of the last checkpoint for this
 	// account if the last call to ListItems did not finish and
@@ -186,11 +192,22 @@ type Client interface {
 	ListItems(ctx context.Context, itemChan chan<- *ItemGraph, opt Options) error
 }
 
-// Timeframe represents a start and end time, where
-// either value could be nil, meaning unbounded in
-// that direction.
+// Timeframe represents a start and end time and/or
+// a start and end item, where either value could be
+// nil which means unbounded in that direction.
+// When items are used as the timeframe boundaries,
+// the ItemID fields will be populated. It is not
+// guaranteed that any particular field will be set
+// or unset just because other fields are set or unset.
+// However, if both Since or both Until fields are
+// set, that means the timestamp and items are
+// correlated; i.e. the Since timestamp is (approx.)
+// that of the item ID. Or, put another way: there
+// will never be no conflicts among the fields which
+// are non-nil.
 type Timeframe struct {
-	Since, Until *time.Time
+	Since, Until             *time.Time
+	SinceItemID, UntilItemID *string
 }
 
 var dataSources = make(map[string]DataSource)

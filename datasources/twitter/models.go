@@ -1,11 +1,12 @@
 package twitter
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/url"
 	"path"
-	"strconv"
 	"strings"
 	"time"
 
@@ -13,40 +14,44 @@ import (
 )
 
 type tweet struct {
-	Retweeted            bool              `json:"retweeted"` // always false (at least, with the export file)
-	Source               string            `json:"source"`
-	Entities             *tweetEntities    `json:"entities,omitempty"` // DO NOT USE (https://developer.twitter.com/en/docs/tweets/data-dictionary/overview/entities-object.html#media)
-	DisplayTextRange     []string          `json:"display_text_range"`
-	FavoriteCount        string            `json:"favorite_count"`
-	TweetIDStr           string            `json:"id_str"`
-	Truncated            bool              `json:"truncated"`
-	Geo                  *tweetGeo         `json:"geo,omitempty"` // deprecated, see coordinates
+	Contributors         interface{}       `json:"contributors"`
 	Coordinates          *tweetGeo         `json:"coordinates,omitempty"`
-	RetweetCount         string            `json:"retweet_count"`
-	TweetID              string            `json:"id"`
-	InReplyToStatusID    string            `json:"in_reply_to_status_id,omitempty"`
-	InReplyToStatusIDStr string            `json:"in_reply_to_status_id_str,omitempty"`
 	CreatedAt            string            `json:"created_at"`
-	Favorited            bool              `json:"favorited"`
-	FullText             string            `json:"full_text"`
-	Lang                 string            `json:"lang"`
-	InReplyToScreenName  string            `json:"in_reply_to_screen_name,omitempty"`
-	InReplyToUserID      string            `json:"in_reply_to_user_id,omitempty"`
-	InReplyToUserIDStr   string            `json:"in_reply_to_user_id_str,omitempty"`
-	PossiblySensitive    bool              `json:"possibly_sensitive,omitempty"`
+	DisplayTextRange     []transInt        `json:"display_text_range"`
+	Entities             *twitterEntities  `json:"entities,omitempty"` // DO NOT USE (https://developer.twitter.com/en/docs/tweets/data-dictionary/overview/entities-object.html#media)
 	ExtendedEntities     *extendedEntities `json:"extended_entities,omitempty"`
+	FavoriteCount        transInt          `json:"favorite_count"`
+	Favorited            bool              `json:"favorited"`
+	FullText             string            `json:"full_text"`     // tweet_mode=extended (https://developer.twitter.com/en/docs/tweets/tweet-updates)
+	Geo                  *tweetGeo         `json:"geo,omitempty"` // deprecated, see coordinates
+	InReplyToScreenName  string            `json:"in_reply_to_screen_name,omitempty"`
+	InReplyToStatusID    transInt          `json:"in_reply_to_status_id,omitempty"`
+	InReplyToStatusIDStr string            `json:"in_reply_to_status_id_str,omitempty"`
+	InReplyToUserID      transInt          `json:"in_reply_to_user_id,omitempty"`
+	InReplyToUserIDStr   string            `json:"in_reply_to_user_id_str,omitempty"`
+	IsQuoteStatus        bool              `json:"is_quote_status"`
+	Lang                 string            `json:"lang"`
+	Place                interface{}       `json:"place"`
+	PossiblySensitive    bool              `json:"possibly_sensitive,omitempty"`
+	RetweetCount         transInt          `json:"retweet_count"`
+	Retweeted            bool              `json:"retweeted"`        // always false for some reason
+	RetweetedStatus      *tweet            `json:"retweeted_status"` // API: contains full_text of a retweet (otherwise is truncated)
+	Source               string            `json:"source"`
+	Text                 string            `json:"text"`      // As of Feb. 2019, Twitter API default; truncated at ~140 chars (see FullText)
+	Truncated            bool              `json:"truncated"` // API: always false in tweet_mode=extended, even if full_text is truncated (retweets)
+	TweetID              transInt          `json:"id"`
+	TweetIDStr           string            `json:"id_str"`
+	User                 *twitterUser      `json:"user"`
 	WithheldCopyright    bool              `json:"withheld_copyright,omitempty"`
 	WithheldInCountries  []string          `json:"withheld_in_countries,omitempty"`
 	WithheldScope        string            `json:"withheld_scope,omitempty"`
 
 	createdAtParsed time.Time
 	ownerAccount    twitterAccount
+	source          string // "api|archive"
 }
 
 func (t *tweet) ID() string {
-	if t.TweetID != "" {
-		return t.TweetID
-	}
 	return t.TweetIDStr
 }
 
@@ -59,11 +64,22 @@ func (t *tweet) Class() timeliner.ItemClass {
 }
 
 func (t *tweet) Owner() (id *string, name *string) {
-	return &t.ownerAccount.AccountID, &t.ownerAccount.Username
+	idStr := t.ownerAccount.id()
+	nameStr := t.ownerAccount.screenName()
+	if idStr != "" {
+		id = &idStr
+	}
+	if nameStr != "" {
+		name = &nameStr
+	}
+	return
 }
 
 func (t *tweet) DataText() (*string, error) {
-	return &t.FullText, nil
+	if txt := t.text(); txt != "" {
+		return &txt, nil
+	}
+	return nil, nil
 }
 
 func (t *tweet) DataFileName() *string {
@@ -103,14 +119,15 @@ func (t *tweet) Location() (*timeliner.Location, error) {
 }
 
 func (t *tweet) isRetweet() bool {
-	if t.Retweeted {
+	if t.Retweeted || t.RetweetedStatus != nil {
 		return true
 	}
 	// TODO: For some reason, when exporting one's Twitter data,
 	// it always sets "retweeted" to false, even when "full_text"
 	// clearly shows it's a retweet by prefixing it with "RT @"
-	// - this seems like a bug with Twitter's exporter
-	return strings.HasPrefix(t.FullText, "RT @")
+	// - this seems like a bug with Twitter's exporter... okay
+	// actually the API does it too, that's dumb
+	return strings.HasPrefix(t.text(), "RT @")
 }
 
 func (t *tweet) hasExactlyOneMediaItem() bool {
@@ -121,6 +138,19 @@ func (t *tweet) hasExactlyOneMediaItem() bool {
 	// in the extended_entities section."
 	// https://developer.twitter.com/en/docs/tweets/data-dictionary/overview/extended-entities-object.html
 	return t.ExtendedEntities != nil && len(t.ExtendedEntities.Media) == 1
+}
+
+func (t *tweet) text() string {
+	// sigh, retweets get truncated if they're tall,
+	// so we have to get the full text from a subfield
+	if t.RetweetedStatus != nil {
+		return strings.TrimSpace(fmt.Sprintf("RT @%s %s",
+			t.RetweetedStatus.User.ScreenName, t.RetweetedStatus.text()))
+	}
+	if t.FullText != "" {
+		return t.FullText
+	}
+	return t.Text
 }
 
 type tweetGeo struct {
@@ -150,7 +180,7 @@ type boundingBox struct {
 	Coordinates [][][]float64 `json:"coordinates"`
 }
 
-type tweetEntities struct {
+type twitterEntities struct {
 	Hashtags     []hashtagEntity     `json:"hashtags"`
 	Symbols      []symbolEntity      `json:"symbols"`
 	UserMentions []userMentionEntity `json:"user_mentions"`
@@ -159,13 +189,13 @@ type tweetEntities struct {
 }
 
 type hashtagEntity struct {
-	Indices []string `json:"indices"`
-	Text    string   `json:"text"`
+	Indices []transInt `json:"indices"`
+	Text    string     `json:"text"`
 }
 
 type symbolEntity struct {
-	Indices []string `json:"indices"`
-	Text    string   `json:"text"`
+	Indices []transInt `json:"indices"`
+	Text    string     `json:"text"`
 }
 
 type urlEntity struct {
@@ -173,7 +203,7 @@ type urlEntity struct {
 	ExpandedURL string            `json:"expanded_url"`
 	DisplayURL  string            `json:"display_url"`
 	Unwound     *urlEntityUnwound `json:"unwound,omitempty"`
-	Indices     []string          `json:"indices"`
+	Indices     []transInt        `json:"indices"`
 }
 
 type urlEntityUnwound struct {
@@ -184,11 +214,11 @@ type urlEntityUnwound struct {
 }
 
 type userMentionEntity struct {
-	Name       string   `json:"name"`
-	ScreenName string   `json:"screen_name"`
-	Indices    []string `json:"indices"`
-	IDStr      string   `json:"id_str"`
-	ID         string   `json:"id"`
+	Name       string     `json:"name"`
+	ScreenName string     `json:"screen_name"`
+	Indices    []transInt `json:"indices"`
+	IDStr      string     `json:"id_str"`
+	ID         transInt   `json:"id"`
 }
 
 type pollEntity struct {
@@ -207,31 +237,28 @@ type extendedEntities struct {
 }
 
 type mediaItem struct {
-	ExpandedURL         string               `json:"expanded_url"`
-	SourceStatusID      string               `json:"source_status_id"`
-	Indices             []string             `json:"indices"`
-	URL                 string               `json:"url"`
-	MediaURL            string               `json:"media_url"`
-	MediaIDStr          string               `json:"id_str"`
-	VideoInfo           *videoInfo           `json:"video_info,omitempty"`
-	SourceUserID        string               `json:"source_user_id"`
 	AdditionalMediaInfo *additionalMediaInfo `json:"additional_media_info,omitempty"`
-	MediaID             string               `json:"id"`
-	MediaURLHTTPS       string               `json:"media_url_https"`
-	SourceUserIDStr     string               `json:"source_user_id_str"`
-	Sizes               mediaSizes           `json:"sizes"`
-	Type                string               `json:"type"`
-	SourceStatusIDStr   string               `json:"source_status_id_str"`
 	DisplayURL          string               `json:"display_url"`
+	ExpandedURL         string               `json:"expanded_url"`
+	Indices             []transInt           `json:"indices"`
+	MediaID             transInt             `json:"id"`
+	MediaIDStr          string               `json:"id_str"`
+	MediaURL            string               `json:"media_url"`
+	MediaURLHTTPS       string               `json:"media_url_https"`
+	Sizes               mediaSizes           `json:"sizes"`
+	SourceStatusID      transInt             `json:"source_status_id"`
+	SourceStatusIDStr   string               `json:"source_status_id_str"`
+	SourceUserID        transInt             `json:"source_user_id"`
+	SourceUserIDStr     string               `json:"source_user_id_str"`
+	Type                string               `json:"type"`
+	URL                 string               `json:"url"`
+	VideoInfo           *videoInfo           `json:"video_info,omitempty"`
 
-	parent *tweet
-	reader io.Reader
+	parent     *tweet
+	readCloser io.ReadCloser // access to the media contents
 }
 
 func (m *mediaItem) ID() string {
-	if m.MediaID != "" {
-		return m.MediaID
-	}
 	return m.MediaIDStr
 }
 
@@ -252,7 +279,10 @@ func (m *mediaItem) Class() timeliner.ItemClass {
 }
 
 func (m *mediaItem) Owner() (id *string, name *string) {
-	return &m.SourceUserID, nil
+	if m.SourceUserIDStr == "" {
+		return m.parent.Owner()
+	}
+	return &m.SourceUserIDStr, nil
 }
 
 func (m *mediaItem) DataText() (*string, error) {
@@ -260,37 +290,26 @@ func (m *mediaItem) DataText() (*string, error) {
 }
 
 func (m *mediaItem) DataFileName() *string {
-	var source string
-	switch m.Type {
-	case "animated_gif":
-		fallthrough
-	case "video":
-		_, _, source = m.getLargestVideo()
-		u, err := url.Parse(source)
-		if err == nil {
-			source = path.Base(u.Path)
-		} else {
-			source = path.Base(source)
-		}
-	case "photo":
-		// TODO -- how to get the largest, will there be multiple??
-		mURL := m.getURL()
-		u, err := url.Parse(mURL)
-		if err == nil {
-			source = path.Base(u.Path)
-		} else {
-			source = path.Base(mURL)
-		}
+	source := m.getURL()
+	u, err := url.Parse(source)
+	if err == nil {
+		source = path.Base(u.Path)
+	} else {
+		source = path.Base(source)
 	}
-	filename := fmt.Sprintf("%s-%s", m.parent.TweetID, source)
-	return &filename
+	// media in the export archives are prefixed by the
+	// tweet ID they were posted with and a hyphen
+	if m.parent.source == "archive" {
+		source = fmt.Sprintf("%s-%s", m.parent.TweetIDStr, source)
+	}
+	return &source
 }
 
 func (m *mediaItem) DataFileReader() (io.ReadCloser, error) {
-	if m.reader == nil {
-		return nil, fmt.Errorf("missing data file reader; this is probably a bug: %+v - video info: %+v", m, m.VideoInfo)
+	if m.readCloser == nil {
+		return nil, fmt.Errorf("missing data file reader; this is probably a bug: %+v -- video info (if any): %+v", m, m.VideoInfo)
 	}
-	return timeliner.FakeCloser(m.reader), nil
+	return m.readCloser, nil
 }
 
 func (m *mediaItem) DataFileHash() []byte {
@@ -331,34 +350,42 @@ func (m *mediaItem) Location() (*timeliner.Location, error) {
 	return nil, nil // TODO
 }
 
-// TODO: How to get the largest image file? (The importer only has a single copy available to it, but videos have multiple variants....)
-
 func (m *mediaItem) getLargestVideo() (bitrate int, contentType, source string) {
 	if m.VideoInfo == nil {
 		return
 	}
 	bitrate = -1 // so that greater-than comparison below works for video bitrate=0 (animated_gif)
 	for _, v := range m.VideoInfo.Variants {
-		brInt, err := strconv.Atoi(v.Bitrate)
-		if err != nil {
-			continue
-		}
-		if brInt > bitrate {
+		if int(v.Bitrate) > bitrate {
 			source = v.URL
 			contentType = v.ContentType
-			bitrate = brInt
+			bitrate = int(v.Bitrate)
 		}
 	}
 
 	return
 }
 
-// TODO: This works only for images...
 func (m *mediaItem) getURL() string {
-	if m.MediaURLHTTPS != "" {
-		return m.MediaURLHTTPS
+	switch m.Type {
+	case "animated_gif":
+		fallthrough
+	case "video":
+		_, _, source := m.getLargestVideo()
+		return source
+	case "photo":
+		// the size of the photo can be adjusted
+		// when downloading by appending a size
+		// to the end of the URL: ":thumb", ":small",
+		// ":medium", ":large", or ":orig" -- but
+		// we don't do that here, only do that when
+		// actually downloading
+		if m.MediaURLHTTPS != "" {
+			return m.MediaURLHTTPS
+		}
+		return m.MediaURL
 	}
-	return m.MediaURL
+	return ""
 }
 
 type additionalMediaInfo struct {
@@ -366,15 +393,15 @@ type additionalMediaInfo struct {
 }
 
 type videoInfo struct {
-	AspectRatio    []string        `json:"aspect_ratio"`
-	DurationMillis string          `json:"duration_millis"`
+	AspectRatio    []transFloat    `json:"aspect_ratio"`
+	DurationMillis transInt        `json:"duration_millis"`
 	Variants       []videoVariants `json:"variants"`
 }
 
 type videoVariants struct {
-	Bitrate     string `json:"bitrate,omitempty"`
-	ContentType string `json:"content_type,omitempty"`
-	URL         string `json:"url"`
+	Bitrate     transInt `json:"bitrate,omitempty"`
+	ContentType string   `json:"content_type,omitempty"`
+	URL         string   `json:"url"`
 }
 
 type mediaSizes struct {
@@ -385,44 +412,173 @@ type mediaSizes struct {
 }
 
 type mediaSize struct {
-	W      string `json:"w"`
-	H      string `json:"h"`
-	Resize string `json:"resize"` // fit|crop
+	W      transInt `json:"w"`
+	H      transInt `json:"h"`
+	Resize string   `json:"resize"` // fit|crop
 }
 
 type twitterUser struct {
-	ID                   int64       `json:"id"`
-	IDStr                string      `json:"id_str"`
-	Name                 string      `json:"name"`
-	ScreenName           string      `json:"screen_name"`
-	Location             string      `json:"location"`
-	URL                  string      `json:"url"`
-	Description          string      `json:"description"`
-	Verified             bool        `json:"verified"`
-	FollowersCount       int         `json:"followers_count"`
-	FriendsCount         int         `json:"friends_count"`
-	ListedCount          int         `json:"listed_count"`
-	FavouritesCount      int         `json:"favourites_count"`
-	StatusesCount        int         `json:"statuses_count"`
-	CreatedAt            string      `json:"created_at"`
-	UTCOffset            interface{} `json:"utc_offset"`
-	TimeZone             interface{} `json:"time_zone"`
-	GeoEnabled           bool        `json:"geo_enabled"`
-	Lang                 string      `json:"lang"`
-	ProfileImageURLHTTPS string      `json:"profile_image_url_https"`
-
-	// TODO: more fields exist; need to get actual example to build struct from
+	ContributorsEnabled            bool             `json:"contributors_enabled"`
+	CreatedAt                      string           `json:"created_at"`
+	DefaultProfile                 bool             `json:"default_profile"`
+	DefaultProfileImage            bool             `json:"default_profile_image"`
+	Description                    string           `json:"description"`
+	Entities                       *twitterEntities `json:"entities"`
+	FavouritesCount                int              `json:"favourites_count"`
+	FollowersCount                 int              `json:"followers_count"`
+	Following                      interface{}      `json:"following"`
+	FollowRequestSent              interface{}      `json:"follow_request_sent"`
+	FriendsCount                   int              `json:"friends_count"`
+	GeoEnabled                     bool             `json:"geo_enabled"`
+	HasExtendedProfile             bool             `json:"has_extended_profile"`
+	IsTranslationEnabled           bool             `json:"is_translation_enabled"`
+	IsTranslator                   bool             `json:"is_translator"`
+	Lang                           string           `json:"lang"`
+	ListedCount                    int              `json:"listed_count"`
+	Location                       string           `json:"location"`
+	Name                           string           `json:"name"`
+	Notifications                  interface{}      `json:"notifications"`
+	ProfileBackgroundColor         string           `json:"profile_background_color"`
+	ProfileBackgroundImageURL      string           `json:"profile_background_image_url"`
+	ProfileBackgroundImageURLHTTPS string           `json:"profile_background_image_url_https"`
+	ProfileBackgroundTile          bool             `json:"profile_background_tile"`
+	ProfileBannerURL               string           `json:"profile_banner_url"`
+	ProfileImageURL                string           `json:"profile_image_url"`
+	ProfileImageURLHTTPS           string           `json:"profile_image_url_https"`
+	ProfileLinkColor               string           `json:"profile_link_color"`
+	ProfileSidebarBorderColor      string           `json:"profile_sidebar_border_color"`
+	ProfileSidebarFillColor        string           `json:"profile_sidebar_fill_color"`
+	ProfileTextColor               string           `json:"profile_text_color"`
+	ProfileUseBackgroundImage      bool             `json:"profile_use_background_image"`
+	Protected                      bool             `json:"protected"`
+	ScreenName                     string           `json:"screen_name"`
+	StatusesCount                  int              `json:"statuses_count"`
+	TimeZone                       interface{}      `json:"time_zone"`
+	TranslatorType                 string           `json:"translator_type"`
+	URL                            string           `json:"url"`
+	UserID                         transInt         `json:"id"`
+	UserIDStr                      string           `json:"id_str"`
+	UtcOffset                      interface{}      `json:"utc_offset"`
+	Verified                       bool             `json:"verified"`
 }
+
 type twitterAccountFile []struct {
 	Account twitterAccount `json:"account"`
 }
 
 type twitterAccount struct {
-	PhoneNumber        string    `json:"phoneNumber"`
-	Email              string    `json:"email"`
-	CreatedVia         string    `json:"createdVia"`
-	Username           string    `json:"username"`
-	AccountID          string    `json:"accountId"`
-	CreatedAt          time.Time `json:"createdAt"`
-	AccountDisplayName string    `json:"accountDisplayName"`
+	// fields from export archive file: account.js
+	PhoneNumber        string `json:"phoneNumber"`
+	Email              string `json:"email"`
+	CreatedVia         string `json:"createdVia"`
+	Username           string `json:"username"`
+	AccountID          string `json:"accountId"`
+	AccountDisplayName string `json:"accountDisplayName"`
+
+	// fields from API endpoint: GET users/show
+	ID                             int         `json:"id"`
+	IDStr                          string      `json:"id_str"`
+	Name                           string      `json:"name"`
+	ScreenName                     string      `json:"screen_name"`
+	Location                       string      `json:"location"`
+	ProfileLocation                interface{} `json:"profile_location"`
+	Description                    string      `json:"description"`
+	URL                            string      `json:"url"`
+	Protected                      bool        `json:"protected"`
+	FollowersCount                 int         `json:"followers_count"`
+	FriendsCount                   int         `json:"friends_count"`
+	ListedCount                    int         `json:"listed_count"`
+	FavouritesCount                int         `json:"favourites_count"`
+	UtcOffset                      interface{} `json:"utc_offset"`
+	TimeZone                       interface{} `json:"time_zone"`
+	GeoEnabled                     bool        `json:"geo_enabled"`
+	Verified                       bool        `json:"verified"`
+	StatusesCount                  int         `json:"statuses_count"`
+	Lang                           string      `json:"lang"`
+	Status                         *tweet      `json:"status"`
+	ContributorsEnabled            bool        `json:"contributors_enabled"`
+	IsTranslator                   bool        `json:"is_translator"`
+	IsTranslationEnabled           bool        `json:"is_translation_enabled"`
+	ProfileBackgroundColor         string      `json:"profile_background_color"`
+	ProfileBackgroundImageURL      string      `json:"profile_background_image_url"`
+	ProfileBackgroundImageURLHTTPS string      `json:"profile_background_image_url_https"`
+	ProfileBackgroundTile          bool        `json:"profile_background_tile"`
+	ProfileImageURL                string      `json:"profile_image_url"`
+	ProfileImageURLHTTPS           string      `json:"profile_image_url_https"`
+	ProfileBannerURL               string      `json:"profile_banner_url"`
+	ProfileLinkColor               string      `json:"profile_link_color"`
+	ProfileSidebarBorderColor      string      `json:"profile_sidebar_border_color"`
+	ProfileSidebarFillColor        string      `json:"profile_sidebar_fill_color"`
+	ProfileTextColor               string      `json:"profile_text_color"`
+	ProfileUseBackgroundImage      bool        `json:"profile_use_background_image"`
+	HasExtendedProfile             bool        `json:"has_extended_profile"`
+	DefaultProfile                 bool        `json:"default_profile"`
+	DefaultProfileImage            bool        `json:"default_profile_image"`
+	Following                      interface{} `json:"following"`
+	FollowRequestSent              interface{} `json:"follow_request_sent"`
+	Notifications                  interface{} `json:"notifications"`
+	TranslatorType                 string      `json:"translator_type"`
+
+	// fields in both export archive file and API
+	CreatedAt string `json:"createdAt"` // NOTE: string with API, time.Time from archive
+}
+
+func (ta twitterAccount) screenName() string {
+	if ta.ScreenName != "" {
+		return ta.ScreenName
+	}
+	return ta.Username
+}
+
+func (ta twitterAccount) id() string {
+	if ta.IDStr != "" {
+		return ta.IDStr
+	}
+	return ta.AccountID
+}
+
+func (ta twitterAccount) name() string {
+	if ta.Name != "" {
+		return ta.Name
+	}
+	return ta.AccountDisplayName
+}
+
+// transInt is an integer that could be
+// unmarshaled from a string, too. This
+// is needed because the archive JSON
+// from Twitter uses all string values,
+// but the same fields are integers with
+// the API.
+type transInt int
+
+func (ti *transInt) UnmarshalJSON(b []byte) error {
+	if len(b) == 0 {
+		return fmt.Errorf("no value")
+	}
+	b = bytes.Trim(b, "\"")
+	var i int
+	err := json.Unmarshal(b, &i)
+	if err != nil {
+		return err
+	}
+	*ti = transInt(i)
+	return nil
+}
+
+// transFloat is like transInt but for floats.
+type transFloat float64
+
+func (tf *transFloat) UnmarshalJSON(b []byte) error {
+	if len(b) == 0 {
+		return fmt.Errorf("no value")
+	}
+	b = bytes.Trim(b, "\"")
+	var f float64
+	err := json.Unmarshal(b, &f)
+	if err != nil {
+		return err
+	}
+	*tf = transFloat(f)
+	return nil
 }

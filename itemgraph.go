@@ -145,14 +145,14 @@ const (
 
 // These are the standard relationships that Timeliner
 // recognizes. Using these known relationships is not
-// required, but it makes it easier to translate them
+// required, but it makes it easier to translate them to
 // human-friendly phrases when visualizing the timeline.
 var (
-	RelReplyTo  = Relation{Label: "reply_to"}                      // "<from> is in reply <to>"
-	RelAttached = Relation{Label: "attached", Bidirectional: true} // "<from> is attached <to>"
+	RelReplyTo  = Relation{Label: "reply_to"}                      // "<from> is in reply to <to>"
+	RelAttached = Relation{Label: "attached", Bidirectional: true} // "<from> is attached to <to>"
 )
 
-// ItemRow mirrors an item's row in our DB.
+// ItemRow has the structure of an item's row in our DB.
 type ItemRow struct {
 	ID         int64
 	AccountID  int64

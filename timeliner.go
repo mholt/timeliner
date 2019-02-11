@@ -116,11 +116,11 @@ type CheckpointFn func(checkpoint []byte) error
 // with the provided context. It overwrites any previous
 // checkpoint. Any errors are logged.
 func Checkpoint(ctx context.Context, checkpoint []byte) {
-	wc, ok := ctx.Value(wrappedClientCtxKey).(WrappedClient)
+	wc, ok := ctx.Value(wrappedClientCtxKey).(*WrappedClient)
 
 	if !ok {
-		log.Printf("[ERROR][%s/%s] Checkpoint function not available; got %T",
-			wc.ds.ID, wc.acc.UserID, wc)
+		log.Printf("[ERROR][%s/%s] Checkpoint function not available; got type %T (%#v)",
+			wc.ds.ID, wc.acc.UserID, wc, wc)
 		return
 	}
 
