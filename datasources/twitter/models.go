@@ -127,7 +127,7 @@ func (t *tweet) isRetweet() bool {
 	// clearly shows it's a retweet by prefixing it with "RT @"
 	// - this seems like a bug with Twitter's exporter... okay
 	// actually the API does it too, that's dumb
-	return strings.HasPrefix(t.text(), "RT @")
+	return strings.HasPrefix(t.rawText(), "RT @")
 }
 
 func (t *tweet) hasExactlyOneMediaItem() bool {
@@ -140,7 +140,47 @@ func (t *tweet) hasExactlyOneMediaItem() bool {
 	return t.ExtendedEntities != nil && len(t.ExtendedEntities.Media) == 1
 }
 
+func (t *tweet) isEmpty() bool {
+	return strings.TrimSpace(t.text()) == "" &&
+		(t.ExtendedEntities == nil || len(t.ExtendedEntities.Media) == 0)
+}
+
+// text returns the full text of the tweet, with entities added inline.
 func (t *tweet) text() string {
+	txt := t.rawText()
+	expandedText := txt
+
+	// replace any shortened URLs with their fully-expanded form
+	if t.Entities != nil {
+		for _, urlEnt := range t.Entities.URLs {
+			if len(urlEnt.Indices) != 2 {
+				continue
+			}
+			textToReplace := txt[urlEnt.Indices[0]:urlEnt.Indices[1]]
+			expandedText = strings.Replace(expandedText, textToReplace, urlEnt.ExpandedURL, 1)
+		}
+	}
+
+	// replace any links to embedded media with the full URL
+	// (although, this is not necessary, because we link the
+	// media in our own way, without a URL)
+	if t.ExtendedEntities != nil {
+		for _, ent := range t.ExtendedEntities.Media {
+			if len(ent.Indices) != 2 {
+				continue
+			}
+			textToReplace := txt[ent.Indices[0]:ent.Indices[1]]
+			expandedText = strings.Replace(expandedText, textToReplace, ent.ExpandedURL, 1)
+		}
+	}
+
+	return expandedText
+}
+
+// rawText returns the "raw" text of the tweet, without
+// replacing entities (but it does dereference any
+// retweeted status to obtain its text, if present).
+func (t *tweet) rawText() string {
 	// sigh, retweets get truncated if they're tall,
 	// so we have to get the full text from a subfield
 	if t.RetweetedStatus != nil {

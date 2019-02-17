@@ -18,7 +18,7 @@ func (c *Client) getFromArchiveFile(itemChan chan<- *timeliner.ItemGraph, opt ti
 	}
 
 	// first pass - add tweets to timeline
-	err = c.processArchive(opt.Filename, itemChan, c.processTweet)
+	err = c.processArchive(opt.Filename, itemChan, c.makeItemGraphFromTweet)
 	if err != nil {
 		return fmt.Errorf("processing tweets: %v", err)
 	}
@@ -85,23 +85,28 @@ func (c *Client) processTweetsFromArchive(itemChan chan<- *timeliner.ItemGraph, 
 			continue
 		}
 
-		err = processFunc(itemChan, t, archiveFilename)
+		ig, err := processFunc(t, archiveFilename)
 		if err != nil {
 			return fmt.Errorf("processing tweet: %v", err)
+		}
+
+		// send the tweet(s) for processing
+		if ig != nil {
+			itemChan <- ig
 		}
 	}
 
 	return nil
 }
 
-func (c *Client) processReplyRelationFromArchive(itemChan chan<- *timeliner.ItemGraph, t tweet, archiveFilename string) error {
+func (c *Client) processReplyRelationFromArchive(t tweet, archiveFilename string) (*timeliner.ItemGraph, error) {
 	if t.InReplyToStatusIDStr == "" {
 		// current tweet is not a reply, so no relationship to add
-		return nil
+		return nil, nil
 	}
-	if !c.topLevelTweets.Lookup([]byte(t.InReplyToStatusIDStr)) {
-		// reply is not to a top-level tweet by self, so doesn't qualify for what we want
-		return nil
+	if t.InReplyToUserIDStr != "" && t.InReplyToUserIDStr != c.ownerAccount.id() {
+		// from archives, we only support storing replies to self... (TODO)
+		return nil, nil
 	}
 
 	ig := &timeliner.ItemGraph{
@@ -114,9 +119,7 @@ func (c *Client) processReplyRelationFromArchive(itemChan chan<- *timeliner.Item
 		},
 	}
 
-	itemChan <- ig
-
-	return nil
+	return ig, nil
 }
 
 func (c *Client) getOwnerAccountFromArchive(filename string) (twitterAccount, error) {
@@ -156,8 +159,9 @@ func stripPreface(f io.Reader, preface string) error {
 }
 
 // archiveProcessFn is a function that processes a
-// tweet from a Twitter export archive.
-type archiveProcessFn func(itemChan chan<- *timeliner.ItemGraph, t tweet, archiveFilename string) error
+// tweet from a Twitter export archive and returns
+// an ItemGraph created from t.
+type archiveProcessFn func(t tweet, archiveFilename string) (*timeliner.ItemGraph, error)
 
 // Variable definitions that are intended for
 // use with JavaScript but which are of no use

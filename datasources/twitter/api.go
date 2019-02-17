@@ -18,7 +18,7 @@ func (c *Client) getFromAPI(ctx context.Context, itemChan chan<- *timeliner.Item
 
 	// get account owner information
 	cleanedScreenName := strings.TrimPrefix(c.acc.UserID, "@")
-	ownerAccount, err := c.getOwnerAccountFromAPI(cleanedScreenName)
+	ownerAccount, err := c.getAccountFromAPI(cleanedScreenName, "")
 	if err != nil {
 		return fmt.Errorf("getting user account information for @%s: %v", cleanedScreenName, err)
 	}
@@ -51,21 +51,16 @@ func (c *Client) getFromAPI(ctx context.Context, itemChan chan<- *timeliner.Item
 				return fmt.Errorf("getting next page of tweets: %v", err)
 			}
 
-			// TODO: Is this the right finish criteria?
+			// we are done when there are no more tweets
 			if len(tweets) == 0 {
 				return nil
 			}
 
 			for _, t := range tweets {
-				skip, err := c.prepareTweet(&t, "api")
+				err = c.processTweetFromAPI(t, itemChan)
 				if err != nil {
-					return fmt.Errorf("preparing tweet: %v", err)
+					return fmt.Errorf("processing tweet from API: %v", err)
 				}
-				if skip {
-					continue
-				}
-
-				c.processTweet(itemChan, t, "")
 			}
 
 			// since max_id is inclusive, subtract 1 from the tweet ID
@@ -80,6 +75,28 @@ func (c *Client) getFromAPI(ctx context.Context, itemChan chan<- *timeliner.Item
 	}
 }
 
+func (c *Client) processTweetFromAPI(t tweet, itemChan chan<- *timeliner.ItemGraph) error {
+	skip, err := c.prepareTweet(&t, "api")
+	if err != nil {
+		return fmt.Errorf("preparing tweet: %v", err)
+	}
+	if skip {
+		return nil
+	}
+
+	ig, err := c.makeItemGraphFromTweet(t, "")
+	if err != nil {
+		return fmt.Errorf("processing tweet %s: %v", t.ID(), err)
+	}
+
+	// send the tweet for processing
+	if ig != nil {
+		itemChan <- ig
+	}
+
+	return nil
+}
+
 // nextPageOfTweetsFromAPI returns the next page of tweets starting at maxTweet
 // and going for a full page or until minTweet, whichever comes first. Generally,
 // iterating over this function will involve decreasing maxTweet and leaving
@@ -88,11 +105,14 @@ func (c *Client) getFromAPI(ctx context.Context, itemChan chan<- *timeliner.Item
 // at least 0 tweets (signaling done, I think) or up to a full page of tweets.
 func (c *Client) nextPageOfTweetsFromAPI(maxTweet, minTweet string) ([]tweet, error) {
 	q := url.Values{
-		"user_id":         {c.ownerAccount.id()}, // TODO
+		"user_id":         {c.ownerAccount.id()},
 		"count":           {"200"},
 		"tweet_mode":      {"extended"}, // https://developer.twitter.com/en/docs/tweets/tweet-updates
 		"exclude_replies": {"false"},    // always include replies in case it's a self-reply; we can filter all others
 		"include_rts":     {"false"},
+	}
+	if c.Retweets {
+		q.Set("include_rts", "true")
 	}
 	if maxTweet != "" {
 		q.Set("max_id", maxTweet)
@@ -100,11 +120,9 @@ func (c *Client) nextPageOfTweetsFromAPI(maxTweet, minTweet string) ([]tweet, er
 	if minTweet != "" {
 		q.Set("since_id", minTweet)
 	}
-	if c.Retweets {
-		q.Set("include_rts", "true")
-	}
+	u := "https://api.twitter.com/1.1/statuses/user_timeline.json?" + q.Encode()
 
-	resp, err := c.HTTPClient.Get("https://api.twitter.com/1.1/statuses/user_timeline.json?" + q.Encode())
+	resp, err := c.HTTPClient.Get(u)
 	if err != nil {
 		return nil, fmt.Errorf("performing API request: %v", err)
 	}
@@ -112,7 +130,7 @@ func (c *Client) nextPageOfTweetsFromAPI(maxTweet, minTweet string) ([]tweet, er
 
 	// TODO: handle HTTP errors, esp. rate limiting, a lot better
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP error: %s", resp.Status)
+		return nil, fmt.Errorf("HTTP error: %s: %s", u, resp.Status)
 	}
 
 	var tweets []tweet
@@ -124,12 +142,22 @@ func (c *Client) nextPageOfTweetsFromAPI(maxTweet, minTweet string) ([]tweet, er
 	return tweets, nil
 }
 
-func (c *Client) getOwnerAccountFromAPI(screenName string) (twitterAccount, error) {
+// getAccountFromAPI gets the account information for either
+// screenName, if set, or accountID, if set. Set only one;
+// leave the other argument empty string.
+func (c *Client) getAccountFromAPI(screenName, accountID string) (twitterAccount, error) {
 	var ta twitterAccount
 
-	q := url.Values{"screen_name": {screenName}}
+	q := make(url.Values)
+	if screenName != "" {
+		q.Set("screen_name", screenName)
+	} else if accountID != "" {
+		q.Set("user_id", accountID)
+	}
 
-	resp, err := c.HTTPClient.Get("https://api.twitter.com/1.1/users/show.json?" + q.Encode())
+	u := "https://api.twitter.com/1.1/users/show.json?" + q.Encode()
+
+	resp, err := c.HTTPClient.Get(u)
 	if err != nil {
 		return ta, fmt.Errorf("performing API request: %v", err)
 	}
@@ -137,7 +165,7 @@ func (c *Client) getOwnerAccountFromAPI(screenName string) (twitterAccount, erro
 
 	// TODO: handle HTTP errors, esp. rate limiting, a lot better
 	if resp.StatusCode != http.StatusOK {
-		return ta, fmt.Errorf("HTTP error: %s", resp.Status)
+		return ta, fmt.Errorf("HTTP error: %s: %s", u, resp.Status)
 	}
 
 	err = json.NewDecoder(resp.Body).Decode(&ta)
@@ -146,4 +174,42 @@ func (c *Client) getOwnerAccountFromAPI(screenName string) (twitterAccount, erro
 	}
 
 	return ta, nil
+}
+
+func (c *Client) getTweetFromAPI(id string) (tweet, error) {
+	var t tweet
+
+	q := url.Values{
+		"id":         {id},
+		"tweet_mode": {"extended"}, // https://developer.twitter.com/en/docs/tweets/tweet-updates
+	}
+	u := "https://api.twitter.com/1.1/statuses/show.json?" + q.Encode()
+
+	resp, err := c.HTTPClient.Get(u)
+	if err != nil {
+		return t, fmt.Errorf("performing API request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusNotFound:
+		// this is okay, because the tweet may simply have been deleted,
+		// and we skip empty tweets anyway
+		fallthrough
+	case http.StatusForbidden:
+		// this happens when the author's account is suspended
+		return t, nil
+	case http.StatusOK:
+		break
+	default:
+		// TODO: handle HTTP errors, esp. rate limiting, a lot better
+		return t, fmt.Errorf("HTTP error: %s: %s", u, resp.Status)
+	}
+
+	err = json.NewDecoder(resp.Body).Decode(&t)
+	if err != nil {
+		return t, fmt.Errorf("reading response body: %v", err)
+	}
+
+	return t, nil
 }
