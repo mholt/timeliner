@@ -35,10 +35,11 @@ Timeliner data sources are strictly _read-only_ meaning that no write permission
 ## Features
 
 - Supported data sources
-	- [Facebook](https://github.com/mholt/timeliner/wiki/Data-Source:-Facebook) (API)
-	- [Google Location History](https://github.com/mholt/timeliner/wiki/Data-Source:-Google-Location-History) (export file)
-	- [Google Photos](https://github.com/mholt/timeliner/wiki/Data-Source:-Google-Photos) (API)
-	- [Twitter](https://github.com/mholt/timeliner/wiki/Data-Source:-Twitter) (export file and API)
+	- [Facebook](https://github.com/mholt/timeliner/wiki/Data-Source:-Facebook)
+	- [Google Location History](https://github.com/mholt/timeliner/wiki/Data-Source:-Google-Location-History)
+	- [Google Photos](https://github.com/mholt/timeliner/wiki/Data-Source:-Google-Photos)
+	- [Twitter](https://github.com/mholt/timeliner/wiki/Data-Source:-Twitter)
+	- [Instagram](https://github.com/mholt/timeliner/wiki/Data-Source:-Instagram)
 	- **[Learn how to add more](https://github.com/mholt/timeliner/wiki/Writing-a-Data-Source)** - we'd love your contribution!
 - Checkpointing (resume interrupted downloads)
 - Pruning
