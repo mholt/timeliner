@@ -249,7 +249,7 @@ type oauth2ProviderConfig struct {
 
 var (
 	repoDir    = "./timeliner_repo"
-	configFile = "config.toml"
+	configFile = "timeliner.toml"
 
 	integrity bool
 	prune     bool

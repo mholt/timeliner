@@ -35,10 +35,10 @@ Timeliner data sources are strictly _read-only_ meaning that no write permission
 ## Features
 
 - Supported data sources
-	- [Facebook](https://github.com/mholt/timeliner/wiki/Data-Source:-Facebook)
-	- [Google Location History](https://github.com/mholt/timeliner/wiki/Data-Source:-Google-Location-History)
-	- [Google Photos](https://github.com/mholt/timeliner/wiki/Data-Source:-Google-Photos)
-	- [Twitter](https://github.com/mholt/timeliner/wiki/Data-Source:-Twitter)
+	- [Facebook](https://github.com/mholt/timeliner/wiki/Data-Source:-Facebook) (API)
+	- [Google Location History](https://github.com/mholt/timeliner/wiki/Data-Source:-Google-Location-History) (export file)
+	- [Google Photos](https://github.com/mholt/timeliner/wiki/Data-Source:-Google-Photos) (API)
+	- [Twitter](https://github.com/mholt/timeliner/wiki/Data-Source:-Twitter) (export file and API)
 	- **[Learn how to add more](https://github.com/mholt/timeliner/wiki/Writing-a-Data-Source)** - we'd love your contribution!
 - Checkpointing (resume interrupted downloads)
 - Pruning
@@ -64,11 +64,17 @@ $ go get -u github.com/mholt/timeliner/cmd/timeliner
 
 _After you've read this tutorial, [the Timeliner wiki](https://github.com/mholt/timeliner/wiki/) has all the information you'll need for using each data source._
 
+These are the basic steps for getting set up:
+
+1. Create a `timeliner.toml` config file (if any data sources require authentication)
+2. Add your data source accounts to your timeline
+3. Begin filling your timeline!
+
 All items are associated with an account from whence they come. Even if a data source doesn't have the concept of accounts, Timeliner still has to think there is one.
 
-Accounts are designated in the form `<data source ID>/<user ID>`, for example: `twitter/@mholt6`. The data source ID is shown on each data source's [wiki page](https://github.com/mholt/timeliner/wiki/). The user ID does not necessarily matter; just choose one that you will recognize, such that the data source ID + user ID are unique. Typically, a good user ID is your login username or email address.
+Accounts are designated in the form `<data source ID>/<user ID>`, for example: `twitter/mholt6`. The data source ID is shown on each data source's [wiki page](https://github.com/mholt/timeliner/wiki/). With some data sources (like the Twitter API), the user ID matters, so where possible, give the actual username or email address you use with that service. For data sources that don't have the concept of accounts or a login, choose a user ID you will recognize such that the data source ID + user ID are unique.
 
-If we want to use accounts that require OAuth2, we need to configure Timeliner with OAuth2 app credentials. You can learn which data sources need OAuth2 and what their configuration looks like by reading their [wiki page](https://github.com/mholt/timeliner/wiki/). By default, Timeliner will try to load `config.toml` from the current directory, but you can use the `-config` flag to change that. Here's a sample `config.toml` file for authenticating with Google:
+If we want to use accounts that require OAuth2, we need to configure Timeliner with OAuth2 app credentials. You can learn which data sources need OAuth2 and what their configuration looks like by reading their [wiki page](https://github.com/mholt/timeliner/wiki/). By default, Timeliner will try to load `timeliner.toml` from the current directory, but you can use the `-config` flag to change that. Here's a sample `timeliner.toml` file for authenticating with Google:
 
 ```
 [oauth2.providers.google]
@@ -100,7 +106,7 @@ This process can take weeks if you have a large library. Even if you have a fast
 
 If you open your timeline folder in a file browser, you will see it start to fill up with your photos from Google Photos.
 
-Data sources may create checkpoints as they go. If so, `get-all` will automatically resume the last listing if it was interrupted. In the case of Google Photos, each page of API results is checkpointed. Checkpoints are not intended for long-term pauses. In other words, a resume should happen fairly shortly after being interrupted.
+Data sources may create checkpoints as they go. If so, `get-all` or `get-latest` will automatically resume the last listing if it was interrupted. In the case of Google Photos, each page of API results is checkpointed. Checkpoints are not intended for long-term pauses. In other words, a resume should happen fairly shortly after being interrupted.
 
 Item processing is idempotent, so as long as items have faithfully-unique IDs across each account, items that already exist in the timeline will be skipped and/or processed much faster.
 
@@ -114,7 +120,9 @@ Once your initial download completes, you can run Timeliner so that only the lat
 $ timeliner get-latest google_photos/you@gmail.com
 ```
 
-This will get only the items timestamped newer than the newest item in your timeline.
+This will get only the items timestamped newer than the newest item in your timeline (from the last successful run).
+
+If `get-latest` is interrupted after adding some newer items to the timeline, the next run of `get-latest` will not stop at the first new item added last time; it is smart enough to know that it was interrupted and needs to keep getting items all the way until the beginning of the last _successful_ run.
 
 
 ### Reprocessing items
