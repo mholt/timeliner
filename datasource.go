@@ -176,9 +176,11 @@ type Client interface {
 	// are assumed to be part of a chronology; both timestamp and
 	// item ID *may be* provided, when possible, to accommodate
 	// data sources which do not constrain by timestamp but which
-	// do by item ID instead.) It should be documented if timeframes
-	// are not supported, but an error need not be returned if it
-	// cannot be honored.
+	// do by item ID instead.) The respective time and item ID
+	// fields, if set, will not be in conflict, so either may be
+	// used if both are present. While it should be documented if
+	// timeframes are not supported, an error need not be returned
+	// if they cannot be honored.
 	//
 	// opt.Checkpoint consists of the last checkpoint for this
 	// account if the last call to ListItems did not finish and

@@ -421,7 +421,7 @@ func (ch *checkpointInfo) save(ctx context.Context) {
 	timeliner.Checkpoint(ctx, gobBytes)
 }
 
-// save records the checkpoint. It is NOT thread-safe,
+// load decodes the checkpoint. It is NOT thread-safe,
 // so calls to this must be protected by a mutex.
 func (ch *checkpointInfo) load(checkpointGob []byte) {
 	if len(checkpointGob) == 0 {

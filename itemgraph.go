@@ -148,8 +148,9 @@ const (
 // required, but it makes it easier to translate them to
 // human-friendly phrases when visualizing the timeline.
 var (
-	RelReplyTo  = Relation{Label: "reply_to"}                      // "<from> is in reply to <to>"
-	RelAttached = Relation{Label: "attached", Bidirectional: true} // "<from> is attached to <to>"
+	RelReplyTo  = Relation{Label: "reply_to", Bidirectional: false} // "<from> is in reply to <to>"
+	RelAttached = Relation{Label: "attached", Bidirectional: true}  // "<to|from> is attached to <from|to>"
+	RelQuotes   = Relation{Label: "quotes", Bidirectional: false}   // "<from> quotes <to>"
 )
 
 // ItemRow has the structure of an item's row in our DB.

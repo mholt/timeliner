@@ -21,34 +21,37 @@ type WrappedClient struct {
 	tl  *Timeline
 	acc Account
 	ds  DataSource
+
+	lastItemRowID     int64
+	lastItemTimestamp time.Time
+	lastItemMu        *sync.Mutex
 }
 
 // GetLatest gets the most recent items from wc. It does not prune or
 // reprocess; only meant for a quick pull. If there are no items pulled
-// yet, all items will be pulled. This is only for data sources that
-// support ListItems.
+// yet, all items will be pulled.
 func (wc *WrappedClient) GetLatest(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	ctx = context.WithValue(ctx, wrappedClientCtxKey, wc)
 
-	// get date of most recent item for this account
-	var mostRecent int64
+	// get date and original ID of the most recent item for this
+	// account from the last successful run
+	var mostRecentTimestamp int64
 	var mostRecentOriginalID string
-	err := wc.tl.db.QueryRow(`SELECT timestamp, original_id
-		FROM items
-		WHERE account_id=?
-		ORDER BY timestamp DESC
-		LIMIT 1`, wc.acc.ID).Scan(&mostRecent, &mostRecentOriginalID)
-	if err != nil && err != sql.ErrNoRows {
-		return fmt.Errorf("getting most recent item: %v", err)
+	if wc.acc.lastItemID != nil {
+		err := wc.tl.db.QueryRow(`SELECT timestamp, original_id
+		FROM items WHERE id=? LIMIT 1`, *wc.acc.lastItemID).Scan(&mostRecentTimestamp, &mostRecentOriginalID)
+		if err != nil && err != sql.ErrNoRows {
+			return fmt.Errorf("getting most recent item: %v", err)
+		}
 	}
 
 	// constrain the pull to the recent timeframe
 	timeframe := Timeframe{}
-	if mostRecent > 0 {
-		ts := time.Unix(mostRecent, 0)
+	if mostRecentTimestamp > 0 {
+		ts := time.Unix(mostRecentTimestamp, 0)
 		timeframe.Since = &ts
 	}
 	if mostRecentOriginalID != "" {
@@ -57,7 +60,7 @@ func (wc *WrappedClient) GetLatest(ctx context.Context) error {
 
 	wg, ch := wc.beginProcessing(concurrentCuckoo{}, false, false)
 
-	err = wc.Client.ListItems(ctx, ch, Options{
+	err := wc.Client.ListItems(ctx, ch, Options{
 		Timeframe:  timeframe,
 		Checkpoint: wc.acc.checkpoint,
 	})
@@ -65,14 +68,13 @@ func (wc *WrappedClient) GetLatest(ctx context.Context) error {
 		return fmt.Errorf("getting items from service: %v", err)
 	}
 
+	// wait for processing to complete
 	wg.Wait()
 
-	// processing completed successfully; clear checkpoint
-	_, err = wc.tl.db.Exec(`UPDATE accounts SET checkpoint=NULL WHERE id=?`, wc.acc.ID) // TODO: limit 1
+	err = wc.successCleanup()
 	if err != nil {
-		return fmt.Errorf("processing completed, but error clearing checkpoint: %v", err)
+		return fmt.Errorf("processing completed, but error cleaning up: %v", err)
 	}
-	wc.acc.checkpoint = nil
 
 	return nil
 }
@@ -83,8 +85,7 @@ func (wc *WrappedClient) GetLatest(ctx context.Context) error {
 // from the timeline at the end of the listing. If integrity is true,
 // all items that are listed by wc that exist in the timeline and which
 // consist of a data file will be opened and checked for integrity; if
-// the file has changed, it will be reprocessed. This is only for data
-// sources that support ListItems.
+// the file has changed, it will be reprocessed.
 func (wc *WrappedClient) GetAll(ctx context.Context, reprocess, prune, integrity bool) error {
 	if wc.Client == nil {
 		return fmt.Errorf("no client")
@@ -107,20 +108,41 @@ func (wc *WrappedClient) GetAll(ctx context.Context, reprocess, prune, integrity
 		return fmt.Errorf("getting items from service: %v", err)
 	}
 
+	// wait for processing to complete
 	wg.Wait()
 
-	// processing completed successfully; clear checkpoint
-	_, err = wc.tl.db.Exec(`UPDATE accounts SET checkpoint=NULL WHERE id=?`, wc.acc.ID) // TODO: limit 1
+	err = wc.successCleanup()
 	if err != nil {
-		return fmt.Errorf("processing completed, but error clearing checkpoint: %v", err)
+		return fmt.Errorf("processing completed, but error cleaning up: %v", err)
 	}
-	wc.acc.checkpoint = nil
 
 	// commence prune, if requested
 	if prune {
 		err := wc.doPrune(cc)
 		if err != nil {
 			return fmt.Errorf("processing completed, but error pruning: %v", err)
+		}
+	}
+
+	return nil
+}
+
+func (wc *WrappedClient) successCleanup() error {
+	// clear checkpoint
+	_, err := wc.tl.db.Exec(`UPDATE accounts SET checkpoint=NULL WHERE id=?`, wc.acc.ID) // TODO: limit 1
+	if err != nil {
+		return fmt.Errorf("clearing checkpoint: %v", err)
+	}
+	wc.acc.checkpoint = nil
+
+	// update the last item ID, to advance the window for future get-latest operations
+	wc.lastItemMu.Lock()
+	lastItemID := wc.lastItemRowID
+	wc.lastItemMu.Unlock()
+	if lastItemID > 0 {
+		_, err = wc.tl.db.Exec(`UPDATE accounts SET last_item_id=? WHERE id=?`, lastItemID, wc.acc.ID) // TODO: limit 1
+		if err != nil {
+			return fmt.Errorf("advancing most recent item ID: %v", err)
 		}
 	}
 
@@ -151,14 +173,13 @@ func (wc *WrappedClient) Import(ctx context.Context, filename string, reprocess,
 		return fmt.Errorf("importing: %v", err)
 	}
 
+	// wait for processing to complete
 	wg.Wait()
 
-	// processing completed successfully; clear checkpoint
-	_, err = wc.tl.db.Exec(`UPDATE accounts SET checkpoint=NULL WHERE id=?`, wc.acc.ID) // TODO: limit 1
+	err = wc.successCleanup()
 	if err != nil {
-		return fmt.Errorf("processing completed, but error clearing checkpoint: %v", err)
+		return fmt.Errorf("processing completed, but error cleaning up: %v", err)
 	}
-	wc.acc.checkpoint = nil
 
 	// commence prune, if requested
 	if prune {

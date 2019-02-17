@@ -60,7 +60,9 @@ CREATE TABLE IF NOT EXISTS "accounts" (
 	"user_id" TEXT NOT NULL,
 	"authorization" BLOB,
 	"checkpoint" BLOB,
+	"last_item_id" INTEGER, -- row ID of item having highest timestamp processed during the last run
 	FOREIGN KEY ("data_source_id") REFERENCES "data_sources"("id") ON DELETE CASCADE,
+	FOREIGN KEY ("last_item_id") REFERENCES "items"("id") ON DELETE SET NULL,
 	UNIQUE ("data_source_id", "user_id")
 );
 

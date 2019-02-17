@@ -79,11 +79,20 @@ type concurrentCuckoo struct {
 	*sync.Mutex
 }
 
-// Options specifies parameters for listing items from a
-// data source. Some data sources may not honor all fields.
+// Options specifies parameters for listing items
+// from a data source. Some data sources might not
+// be able to honor all fields.
 type Options struct {
-	Filename   string
-	Timeframe  Timeframe
+	// A file from which to read the data.
+	Filename string
+
+	// Time bounds on which data to retrieve.
+	// The respective time and item ID fields
+	// which are set must never conflict.
+	Timeframe Timeframe
+
+	// A checkpoint from which to resume
+	// item retrieval.
 	Checkpoint []byte
 }
 

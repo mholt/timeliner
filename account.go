@@ -5,6 +5,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -16,6 +17,7 @@ type Account struct {
 	person        Person
 	authorization []byte
 	checkpoint    []byte
+	lastItemID    *int64
 
 	t  *Timeline
 	ds DataSource
@@ -114,10 +116,11 @@ func (t *Timeline) NewClient(dataSourceID, userID string) (WrappedClient, error)
 	}
 
 	return WrappedClient{
-		Client: cl,
-		tl:     t,
-		acc:    acc,
-		ds:     ds,
+		Client:     cl,
+		tl:         t,
+		acc:        acc,
+		ds:         ds,
+		lastItemMu: new(sync.Mutex),
 	}, nil
 }
 
@@ -131,9 +134,9 @@ func (t *Timeline) getAccount(dsID, userID string) (Account, error) {
 		t:  t,
 	}
 	err := t.db.QueryRow(`SELECT
-		id, data_source_id, user_id, authorization, checkpoint
+		id, data_source_id, user_id, authorization, checkpoint, last_item_id
 		FROM accounts WHERE data_source_id=? AND user_id=? LIMIT 1`,
-		dsID, userID).Scan(&acc.ID, &acc.DataSourceID, &acc.UserID, &acc.authorization, &acc.checkpoint)
+		dsID, userID).Scan(&acc.ID, &acc.DataSourceID, &acc.UserID, &acc.authorization, &acc.checkpoint, &acc.lastItemID)
 	if err != nil {
 		return acc, fmt.Errorf("querying account %s/%s from DB: %v", dsID, userID, err)
 	}

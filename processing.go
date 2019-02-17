@@ -169,7 +169,6 @@ func (wc *WrappedClient) processItemGraph(ig *ItemGraph, state *recursiveState) 
 	return igRowID, nil
 }
 
-// TODO: is this function useful?
 func (wc *WrappedClient) processSingleItemGraphNode(it Item, state *recursiveState) (int64, error) {
 	if itemID := it.ID(); itemID != "" && state.cuckoo.Filter != nil {
 		state.cuckoo.Lock()
@@ -177,7 +176,24 @@ func (wc *WrappedClient) processSingleItemGraphNode(it Item, state *recursiveSta
 		state.cuckoo.Unlock()
 	}
 
-	return wc.storeItemFromService(it, state.timestamp, state.reprocess, state.integrityCheck)
+	itemRowID, err := wc.storeItemFromService(it, state.timestamp, state.reprocess, state.integrityCheck)
+	if err != nil {
+		return itemRowID, err
+	}
+
+	// item was stored successfully, so now keep track of the item with the highest
+	// (latest, last, etc.) timestamp, so that get-latest operations can be resumed
+	// after interruption without creating gaps in the data that would never be
+	// filled in otherwise except with a get-all...
+	itemTS := it.Timestamp()
+	wc.lastItemMu.Lock()
+	if wc.lastItemTimestamp.IsZero() || wc.lastItemTimestamp.Before(itemTS) {
+		wc.lastItemRowID = itemRowID
+		wc.lastItemTimestamp = itemTS
+	}
+	wc.lastItemMu.Unlock()
+
+	return itemRowID, nil
 }
 
 func (wc *WrappedClient) storeItemFromService(it Item, timestamp time.Time, reprocess, integrity bool) (int64, error) {
