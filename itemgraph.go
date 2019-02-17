@@ -360,6 +360,8 @@ type Metadata struct {
 	Heading          int // degrees
 	Velocity         int
 
+	GeneralArea string // natural language description of a location
+
 	// Photos and videos
 	EXIF map[string]interface{}
 	// TODO: Should we have some of the "most important" EXIF fields explicitly here?
