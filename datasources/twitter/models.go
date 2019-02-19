@@ -516,7 +516,7 @@ type twitterAccount struct {
 	AccountDisplayName string `json:"accountDisplayName"`
 
 	// fields from API endpoint: GET users/show
-	ID                             int         `json:"id"`
+	ID                             transInt    `json:"id"`
 	IDStr                          string      `json:"id_str"`
 	Name                           string      `json:"name"`
 	ScreenName                     string      `json:"screen_name"`
@@ -590,14 +590,14 @@ func (ta twitterAccount) name() string {
 // from Twitter uses all string values,
 // but the same fields are integers with
 // the API.
-type transInt int
+type transInt int64
 
 func (ti *transInt) UnmarshalJSON(b []byte) error {
 	if len(b) == 0 {
 		return fmt.Errorf("no value")
 	}
 	b = bytes.Trim(b, "\"")
-	var i int
+	var i int64
 	err := json.Unmarshal(b, &i)
 	if err != nil {
 		return err
