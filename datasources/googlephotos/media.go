@@ -71,7 +71,7 @@ func (m mediaItem) DataFileReader() (io.ReadCloser, error) {
 		if err != nil {
 			err = fmt.Errorf("getting media contents: %v", err)
 			log.Printf("[ERROR][%s] %v - retrying... (attempt %d/%d)", DataSourceID, err, i+1, maxTries)
-			time.Sleep(1 * time.Second)
+			time.Sleep(5 * time.Second)
 			continue
 		}
 		if resp.StatusCode != http.StatusOK {
@@ -92,6 +92,9 @@ func (m mediaItem) DataFileReader() (io.ReadCloser, error) {
 		break
 	}
 
+	if resp == nil {
+		return nil, err
+	}
 	return resp.Body, err
 }
 
