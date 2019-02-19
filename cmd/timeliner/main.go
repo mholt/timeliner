@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/mholt/timeliner"
@@ -25,6 +26,8 @@ import (
 func init() {
 	flag.StringVar(&configFile, "config", configFile, "The path to the config file to load")
 	flag.StringVar(&repoDir, "repo", repoDir, "The path to the folder of the repository")
+	flag.IntVar(&maxRetries, "max-retries", maxRetries, "If > 0, will retry on failure at most this many times")
+	flag.DurationVar(&retryAfter, "retry-after", retryAfter, "If > 0, will wait this long between retries")
 
 	flag.BoolVar(&prune, "prune", prune, "When finishing, delete items not found on remote (download-all or import only)")
 	flag.BoolVar(&integrity, "integrity", integrity, "Perform integrity check on existing items and reprocess if needed (download-all or import only)")
@@ -36,6 +39,10 @@ func init() {
 
 func main() {
 	flag.Parse()
+
+	if maxRetries < 0 {
+		maxRetries = 0
+	}
 
 	// split the CLI arguments into subcommand and arguments
 	args := flag.Args()
@@ -118,10 +125,17 @@ func main() {
 			go func(wc timeliner.WrappedClient) {
 				defer wg.Done()
 				ctx, cancel := context.WithCancel(context.Background())
-				err := wc.GetLatest(ctx)
-				if err != nil {
-					log.Printf("[ERROR][%s/%s] Pulling latest: %v",
-						wc.DataSourceID(), wc.UserID(), err)
+				for retryNum := 0; retryNum < 1+maxRetries; retryNum++ {
+					err := wc.GetLatest(ctx)
+					if err != nil {
+						log.Printf("[ERROR][%s/%s] Getting latest: %v",
+							wc.DataSourceID(), wc.UserID(), err)
+						if retryAfter > 0 {
+							time.Sleep(retryAfter)
+						}
+						continue
+					}
+					break
 				}
 				defer cancel() // TODO: Make this useful, maybe?
 			}(wc)
@@ -135,10 +149,17 @@ func main() {
 			go func(wc timeliner.WrappedClient) {
 				defer wg.Done()
 				ctx, cancel := context.WithCancel(context.Background())
-				err := wc.GetAll(ctx, reprocess, prune, integrity)
-				if err != nil {
-					log.Printf("[ERROR][%s/%s] Downloading all: %v",
-						wc.DataSourceID(), wc.UserID(), err)
+				for retryNum := 0; retryNum < 1+maxRetries; retryNum++ {
+					err := wc.GetAll(ctx, reprocess, prune, integrity)
+					if err != nil {
+						log.Printf("[ERROR][%s/%s] Downloading all: %v",
+							wc.DataSourceID(), wc.UserID(), err)
+						if retryAfter > 0 {
+							time.Sleep(retryAfter)
+						}
+						continue
+					}
+					break
 				}
 				defer cancel() // TODO: Make this useful, maybe?
 			}(wc)
@@ -251,6 +272,8 @@ type oauth2ProviderConfig struct {
 var (
 	repoDir    = "./timeliner_repo"
 	configFile = "timeliner.toml"
+	maxRetries int
+	retryAfter time.Duration
 
 	integrity bool
 	prune     bool
