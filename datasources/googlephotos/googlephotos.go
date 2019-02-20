@@ -297,7 +297,7 @@ func (c *Client) apiRequestWithRetry(method, endpoint string, reqBodyData, respI
 		if err != nil {
 			log.Printf("[ERROR][%s/%s] Doing API request: >>> %v <<< - retrying... (attempt %d/%d)",
 				DataSourceID, c.userID, err, i+1, maxTries)
-			time.Sleep(2 * time.Second)
+			time.Sleep(10 * time.Second)
 			continue
 		}
 
@@ -322,7 +322,7 @@ func (c *Client) apiRequestWithRetry(method, endpoint string, reqBodyData, respI
 			// for any other error, wait a couple seconds and retry
 			log.Printf("[ERROR][%s/%s] Bad API response: %v - retrying... (attempt %d/%d)",
 				DataSourceID, c.userID, err, i+1, maxTries)
-			time.Sleep(2 * time.Second)
+			time.Sleep(10 * time.Second)
 			continue
 		}
 
@@ -333,7 +333,7 @@ func (c *Client) apiRequestWithRetry(method, endpoint string, reqBodyData, respI
 			err = fmt.Errorf("decoding JSON: %v", err)
 			log.Printf("[ERROR][%s/%s] Reading API response: %v - retrying... (attempt %d/%d)",
 				DataSourceID, c.userID, err, i+1, maxTries)
-			time.Sleep(2 * time.Second)
+			time.Sleep(10 * time.Second)
 			continue
 		}
 
