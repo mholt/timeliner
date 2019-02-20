@@ -41,7 +41,7 @@ func (acc Account) NewHTTPClient() (*http.Client, error) {
 	if acc.ds.RateLimit.RequestsPerHour > 0 {
 		httpClient.Transport = acc.NewRateLimitedRoundTripper(httpClient.Transport)
 	}
-	httpClient.Timeout = 30 * time.Second
+	httpClient.Timeout = 60 * time.Second
 	return httpClient, nil
 }
 

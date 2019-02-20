@@ -200,6 +200,9 @@ type ItemGraph struct {
 	// Useful when processing related items in
 	// batches.
 	//
+	// Directional relationships go from Node to
+	// the map key.
+	//
 	// If the items involved in a relationship are
 	// not efficiently available at the same time
 	// (i.e. if loading both items involved in the

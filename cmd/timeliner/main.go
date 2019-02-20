@@ -126,6 +126,9 @@ func main() {
 				defer wg.Done()
 				ctx, cancel := context.WithCancel(context.Background())
 				for retryNum := 0; retryNum < 1+maxRetries; retryNum++ {
+					if retryNum > 0 {
+						log.Println("[INFO] Retrying command")
+					}
 					err := wc.GetLatest(ctx)
 					if err != nil {
 						log.Printf("[ERROR][%s/%s] Getting latest: %v",
@@ -150,6 +153,9 @@ func main() {
 				defer wg.Done()
 				ctx, cancel := context.WithCancel(context.Background())
 				for retryNum := 0; retryNum < 1+maxRetries; retryNum++ {
+					if retryNum > 0 {
+						log.Println("[INFO] Retrying command")
+					}
 					err := wc.GetAll(ctx, reprocess, prune, integrity)
 					if err != nil {
 						log.Printf("[ERROR][%s/%s] Downloading all: %v",
