@@ -389,6 +389,9 @@ type Metadata struct {
 	ParentID    string
 	StatusType  string
 	Type        string
+
+	Shares int // aka "Retweets" or "Reshares"
+	Likes  int
 }
 
 func (m *Metadata) encode() ([]byte, error) {

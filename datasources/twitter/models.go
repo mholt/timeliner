@@ -111,7 +111,11 @@ func (t *tweet) DataFileMIMEType() *string {
 }
 
 func (t *tweet) Metadata() (*timeliner.Metadata, error) {
-	return nil, nil // TODO
+	m := timeliner.Metadata{
+		Shares: int(t.RetweetCount),
+		Likes:  int(t.FavoriteCount),
+	}
+	return &m, nil
 }
 
 func (t *tweet) Location() (*timeliner.Location, error) {
