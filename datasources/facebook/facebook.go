@@ -8,11 +8,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/mholt/timeliner"
 )
@@ -335,39 +337,67 @@ func (c *Client) apiRequest(method, endpoint string, reqBodyData, respInto inter
 }
 
 func (c *Client) apiRequestFullURL(method, fullURL string, reqBodyData, respInto interface{}) error {
-	var reqBody io.Reader
+	// make the request body just once (so we can retry safely)
+	var reqBodyBytes []byte
+	var err error
 	if reqBodyData != nil {
-		reqBodyBytes, err := json.Marshal(reqBodyData)
+		reqBodyBytes, err = json.Marshal(reqBodyData)
 		if err != nil {
 			return err
 		}
-		reqBody = bytes.NewReader(reqBodyBytes)
 	}
 
-	req, err := http.NewRequest(method, fullURL, reqBody)
-	if err != nil {
-		return err
-	}
-	if reqBody != nil {
-		req.Header.Set("Content-Type", "application/json")
+	const maxTries = 5
+	for i := 0; i < maxTries; i++ {
+		var reqBody io.Reader
+		if len(reqBodyBytes) > 0 {
+			reqBody = bytes.NewReader(reqBodyBytes)
+		}
+
+		var req *http.Request
+		req, err = http.NewRequest(method, fullURL, reqBody)
+		if err != nil {
+			return fmt.Errorf("making request to %s %s: %v", method, fullURL, err)
+		}
+		if reqBody != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+
+		var resp *http.Response
+		resp, err = c.httpClient.Do(req)
+		if err != nil {
+			log.Printf("[ERROR][%s] Performing API request: %s %s: %v - waiting and retrying... (attempt %d/%d)",
+				DataSourceID, method, fullURL, err, i+1, maxTries)
+			time.Sleep(30 * time.Second)
+			continue
+		}
+		defer resp.Body.Close() // yes, this is in a loop, so just a few sockets might leak for a few minutes
+
+		if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+			bodyText, err2 := ioutil.ReadAll(io.LimitReader(resp.Body, 1024*256))
+
+			if err2 == nil {
+				err = fmt.Errorf("HTTP %d: %s: >>> %s <<<", resp.StatusCode, resp.Status, bodyText)
+			} else {
+				err = fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+			}
+
+			log.Printf("[ERROR][%s] %s %s: Bad response: %v - waiting and retrying... (attempt %d/%d)",
+				DataSourceID, method, fullURL, err, i+1, maxTries)
+			time.Sleep(30 * time.Second)
+			continue
+		} else if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+		}
+
+		err = json.NewDecoder(resp.Body).Decode(&respInto)
+		if err != nil {
+			return fmt.Errorf("decoding JSON: %v", err)
+		}
+		break
 	}
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("performing API request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
-	}
-
-	err = json.NewDecoder(resp.Body).Decode(&respInto)
-	if err != nil {
-		return fmt.Errorf("decoding JSON: %v", err)
-	}
-
-	return nil
+	return err
 }
 
 // NOTE: for these timeConstraint functions... Facebook docs recommend either setting

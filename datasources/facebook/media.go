@@ -115,7 +115,6 @@ func (m *fbMedia) DataFileReader() (io.ReadCloser, error) {
 }
 
 func (m *fbMedia) DataFileMIMEType() *string {
-	fmt.Println("BEST SOURCE FILENAME:", m.bestSourceFilename)
 	mt := mime.TypeByExtension(path.Ext(m.bestSourceFilename))
 	if mt != "" {
 		return &mt
