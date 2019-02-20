@@ -109,7 +109,7 @@ func (wc *WrappedClient) processItemGraph(ig *ItemGraph, state *recursiveState) 
 
 				// insert relations to this connected node into DB
 				for _, rel := range relations {
-					_, err = wc.tl.db.Exec(`INSERT INTO relationships
+					_, err = wc.tl.db.Exec(`INSERT OR IGNORE INTO relationships
 					(from_item_id, to_item_id, directed, label)
 					VALUES (?, ?, ?, ?)`,
 						igRowID, connectedIGRowID, !rel.Bidirectional, rel.Label)
@@ -156,7 +156,7 @@ func (wc *WrappedClient) processItemGraph(ig *ItemGraph, state *recursiveState) 
 		}
 
 		// store the relation
-		_, err = wc.tl.db.Exec(`INSERT INTO relationships
+		_, err = wc.tl.db.Exec(`INSERT OR IGNORE INTO relationships
 					(from_item_id, to_item_id, directed, label)
 					VALUES (?, ?, ?, ?)`,
 			fromItemRowID, toItemRowID, rr.Bidirectional, rr.Label)

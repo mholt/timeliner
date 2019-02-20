@@ -116,11 +116,15 @@ CREATE TABLE IF NOT EXISTS "relationships" (
 	"to_person_id" INTEGER,
 	"to_item_id" INTEGER,
 	"directed" BOOLEAN, -- if false, the edge goes both ways
- 	"label" TEXT,
+ 	"label" TEXT NOT NULL,
 	FOREIGN KEY ("from_item_id") REFERENCES "items"("id") ON DELETE CASCADE,
 	FOREIGN KEY ("to_item_id") REFERENCES "items"("id") ON DELETE CASCADE,
 	FOREIGN KEY ("from_person_id") REFERENCES "persons"("id") ON DELETE CASCADE,
-	FOREIGN KEY ("to_person_id") REFERENCES "persons"("id") ON DELETE CASCADE
+	FOREIGN KEY ("to_person_id") REFERENCES "persons"("id") ON DELETE CASCADE,
+	UNIQUE ("from_item_id", "to_item_id", "label"),
+	UNIQUE ("from_person_id", "to_person_id", "label"),
+	UNIQUE ("from_item_id", "to_person_id", "label"),
+	UNIQUE ("from_person_id", "to_item_id", "label")
 );
 
 CREATE TABLE IF NOT EXISTS "collections" (
