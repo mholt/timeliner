@@ -195,6 +195,19 @@ func (c *Client) getFeedNextPage(itemChan chan<- *timeliner.ItemGraph,
 }
 
 func (c *Client) requestPage(nextPageURL string, timeframe timeliner.Timeframe) (fbUser, error) {
+	var user fbUser
+
+	// if a URL for the "next" page was given, then we can just use that
+	if nextPageURL != "" {
+		err := c.apiRequestFullURL("GET", nextPageURL, nil, &user)
+		if err != nil {
+			return user, fmt.Errorf("requesting page using full URL: %s: %v", nextPageURL, err)
+		}
+		return user, nil
+	}
+
+	// otherwise, we'll need to craft our own URL to kick things off
+
 	timeConstraint := fieldTimeConstraint(timeframe)
 	nested := "{attachments,backdated_time,created_time,description,from,link,message,name,parent_id,place,status_type,type,with_tags}"
 
@@ -203,7 +216,6 @@ func (c *Client) requestPage(nextPageURL string, timeframe timeliner.Timeframe) 
 		"order":  {"reverse_chronological"}, // TODO: see https://developers.facebook.com/support/bugs/2231843933505877/ (thankfully, reverse_chronological is their default for feed)
 	}
 
-	var user fbUser
 	err := c.apiRequest("GET", "me?"+v.Encode(), nil, &user)
 	return user, err
 }
@@ -300,7 +312,6 @@ func (c *Client) getCollectionsNextPage(itemChan chan<- *timeliner.ItemGraph,
 			for {
 				for i := range album.Photos.Data {
 					album.Photos.Data[i].fillFields("photo")
-
 					coll.Items = append(coll.Items, timeliner.CollectionItem{
 						Item:     &album.Photos.Data[i],
 						Position: counter,
