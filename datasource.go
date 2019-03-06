@@ -205,7 +205,7 @@ type Client interface {
 // set, that means the timestamp and items are
 // correlated; i.e. the Since timestamp is (approx.)
 // that of the item ID. Or, put another way: there
-// will never be no conflicts among the fields which
+// will never be conflicts among the fields which
 // are non-nil.
 type Timeframe struct {
 	Since, Until             *time.Time

@@ -44,7 +44,7 @@ func (b Browser) Get(expectedStateVal, authCodeURL string) (string, error) {
 	errCh := make(chan error)
 
 	go func() {
-		http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler := func(w http.ResponseWriter, r *http.Request) {
 			state := r.FormValue("state")
 			code := r.FormValue("code")
 
@@ -60,11 +60,15 @@ func (b Browser) Get(expectedStateVal, authCodeURL string) (string, error) {
 				return
 			}
 
+			fmt.Fprint(w, successBody)
 			ch <- code
+		}
 
-			w.WriteHeader(http.StatusOK)
-			fmt.Fprintln(w, successBody)
-		}))
+		// must disable keep-alives, otherwise repeated calls to
+		// this method can block indefinitely in some weird bug
+		srv := http.Server{Handler: http.HandlerFunc(handler)}
+		srv.SetKeepAlivesEnabled(false)
+		srv.Serve(ln)
 	}()
 
 	err = openBrowser(authCodeURL)
