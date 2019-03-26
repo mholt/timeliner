@@ -94,6 +94,12 @@ type Options struct {
 	// A checkpoint from which to resume
 	// item retrieval.
 	Checkpoint []byte
+
+	//TODO: Integrate a new timezone parameter for telegram
+	// A default timezone to use for timestamps
+	// without explicit timezones, e.g. "Europe/Berlin"
+	// See https://golang.org/pkg/time/#LoadLocation
+	//Timezone string
 }
 
 // FakeCloser turns an io.Reader into an io.ReadCloser

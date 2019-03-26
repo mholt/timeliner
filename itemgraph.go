@@ -141,6 +141,7 @@ const (
 	ClassLocation
 	ClassEmail
 	ClassPrivateMessage
+	CLassConversation
 )
 
 // These are the standard relationships that Timeliner
@@ -392,6 +393,10 @@ type Metadata struct {
 
 	Shares int // aka "Retweets" or "Reshares"
 	Likes  int
+
+	// Messages (Telegram)
+	EditedDate time.Time
+	MediaType  string
 }
 
 func (m *Metadata) encode() ([]byte, error) {
