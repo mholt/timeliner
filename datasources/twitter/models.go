@@ -198,8 +198,8 @@ func (t *tweet) rawText() string {
 }
 
 type tweetGeo struct {
-	Type        string   `json:"type"`
-	Coordinates []string `json:"coordinates"` // "latitude, then a longitude"
+	Type        string    `json:"type"`
+	Coordinates []float64 `json:"coordinates"` // "longitude first, then latitude"
 }
 
 type tweetPlace struct {
