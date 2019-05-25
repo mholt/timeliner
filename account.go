@@ -47,13 +47,8 @@ func (acc Account) NewHTTPClient() (*http.Client, error) {
 
 // AddAccount authenticates userID with the service identified
 // within the application by dataSourceID, and then stores it in the
-// database.
+// database. The account must not yet exist.
 func (t *Timeline) AddAccount(dataSourceID, userID string) error {
-	ds, ok := dataSources[dataSourceID]
-	if !ok {
-		return fmt.Errorf("data source not registered: %s", dataSourceID)
-	}
-
 	// ensure account is not already stored in our system
 	var count int
 	err := t.db.QueryRow(`SELECT COUNT(*) FROM accounts WHERE data_source_id=? AND user_id=? LIMIT 1`,
@@ -65,8 +60,21 @@ func (t *Timeline) AddAccount(dataSourceID, userID string) error {
 		return fmt.Errorf("account already stored in database: %s/%s", dataSourceID, userID)
 	}
 
+	return t.Authenticate(dataSourceID, userID)
+}
+
+// Authenticate gets authentication for userID with dataSourceID. If the
+// account already exists in the database, it will be updated with the
+// latest authorization.
+func (t *Timeline) Authenticate(dataSourceID, userID string) error {
+	ds, ok := dataSources[dataSourceID]
+	if !ok {
+		return fmt.Errorf("data source not registered: %s", dataSourceID)
+	}
+
 	// authenticate with the data source (if necessary)
 	var credsBytes []byte
+	var err error
 	if authFn := ds.authFunc(); authFn != nil {
 		credsBytes, err = authFn(userID)
 		if err != nil {
@@ -82,10 +90,15 @@ func (t *Timeline) AddAccount(dataSourceID, userID string) error {
 	}
 
 	// store the account along with our authorization to access it
-	_, err = t.db.Exec(`INSERT INTO accounts (data_source_id, user_id, authorization) VALUES (?, ?, ?)`,
-		dataSourceID, userID, credsBytes)
+	_, err = t.db.Exec(`INSERT INTO accounts
+		(data_source_id, user_id, authorization)
+		VALUES (?, ?, ?)
+		ON CONFLICT (data_source_id, user_id)
+		DO UPDATE SET authorization=?`,
+		dataSourceID, userID, credsBytes,
+		credsBytes)
 	if err != nil {
-		return fmt.Errorf("inserting into DB: %v", err)
+		return fmt.Errorf("inserting into or updating DB: %v", err)
 	}
 
 	return nil

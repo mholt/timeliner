@@ -148,6 +148,16 @@ However, this involves doing a complete listing of all the items. Pruning happen
 To schedule a prune, just run with the `-prune` flag: `timeliner -prune get-all ...`.
 
 
+### Reauthenticating with a data source
+
+Some data sources (Facebook) expire tokens that don't have recent user interactions. Every 2-3 months, you may need to reauthenticate:
+
+```
+$ timeliner reauth facebook/you
+```
+
+See the [wiki](https://github.com/mholt/timeliner/wiki) for each data source to know if you need to reauthenticate and how to do so. Sometimes you have to go to the data source itself and authorize a reauthentication first.
+
 
 ### More information about each data source
 
