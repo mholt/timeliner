@@ -84,12 +84,21 @@ func main() {
 	}
 	defer tl.Close()
 
-	// as a special case, handle AddAccount separately
-	if subcmd == "add-account" {
+	// as a special case, handle authentication subcommands separately
+	switch subcmd {
+	case "add-account":
 		for _, a := range accounts {
 			err := tl.AddAccount(a.dataSourceID, a.userID)
 			if err != nil {
 				log.Fatalf("[FATAL] Adding account: %v", err)
+			}
+		}
+		return
+	case "reauth":
+		for _, a := range accounts {
+			err := tl.Authenticate(a.dataSourceID, a.userID)
+			if err != nil {
+				log.Fatalf("[FATAL] Authenticating: %v", err)
 			}
 		}
 		return
