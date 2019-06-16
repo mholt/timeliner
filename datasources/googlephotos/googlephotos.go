@@ -29,7 +29,7 @@ const (
 
 var dataSource = timeliner.DataSource{
 	ID:   DataSourceID,
-	Name: DataSourceID,
+	Name: DataSourceName,
 	OAuth2: timeliner.OAuth2{
 		ProviderID: "google",
 		Scopes:     []string{"https://www.googleapis.com/auth/photoslibrary.readonly"},
