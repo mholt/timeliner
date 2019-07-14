@@ -71,7 +71,6 @@ func (m MMS) Owner() (number *string, name *string) {
 		if addr.Type == mmsAddrTypeSender {
 			// TODO: Get sender name... for group texts this is tricky/impossible, since order varies
 			// TODO: If there is only one other contact on the message (other than the account owner's number), we can probably assume the contact name is theirs.
-
 			standardized, err := m.client.standardizePhoneNumber(addr.Address)
 			if err != nil {
 				// oh well; just go with what we have, I guess

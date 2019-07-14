@@ -139,30 +139,54 @@ func (wc *WrappedClient) processItemGraph(ig *ItemGraph, state *recursiveState) 
 
 	// process raw relations, if any
 	for _, rr := range ig.Relations {
-		// get each item's row ID from their data source item ID
-		fromItemRowID, err := wc.itemRowIDFromOriginalID(rr.FromItemID)
-		if err == sql.ErrNoRows {
-			continue // item does not exist in timeline; skip this relation
+		var fromItemRowID, toItemRowID, fromPersonRowID, toPersonRowID *int64
+		var err error
+		if rr.FromItemID != "" {
+			// get each item's row ID from their data source item ID
+			fromItemRowID, err = wc.itemRowIDFromOriginalID(rr.FromItemID)
+			if err == sql.ErrNoRows {
+				continue // item does not exist in timeline; skip this relation
+			}
+			if err != nil {
+				return 0, fmt.Errorf("querying 'from' item row ID: %v", err)
+			}
 		}
-		if err != nil {
-			return 0, fmt.Errorf("querying 'from' item row ID: %v", err)
+		if rr.ToItemID != "" {
+			toItemRowID, err = wc.itemRowIDFromOriginalID(rr.ToItemID)
+			if err == sql.ErrNoRows {
+				continue // item does not exist in timeline; skip this relation
+			}
+			if err != nil {
+				return 0, fmt.Errorf("querying 'to' item row ID: %v", err)
+			}
 		}
-		toItemRowID, err := wc.itemRowIDFromOriginalID(rr.ToItemID)
-		if err == sql.ErrNoRows {
-			continue // item does not exist in timeline; skip this relation
+		if rr.FromPersonUserID != "" {
+			fromPersonRowID, err = wc.personRowIDFromUserID(rr.FromPersonUserID)
+			if err == sql.ErrNoRows {
+				continue // person does not exist in timeline; skip this relation
+			}
+			if err != nil {
+				return 0, fmt.Errorf("querying 'from' person row ID: %v", err)
+			}
 		}
-		if err != nil {
-			return 0, fmt.Errorf("querying 'to' item row ID: %v", err)
+		if rr.ToPersonUserID != "" {
+			toPersonRowID, err = wc.personRowIDFromUserID(rr.ToPersonUserID)
+			if err == sql.ErrNoRows {
+				continue // person does not exist in timeline; skip this relation
+			}
+			if err != nil {
+				return 0, fmt.Errorf("querying 'to' person row ID: %v", err)
+			}
 		}
 
 		// store the relation
 		_, err = wc.tl.db.Exec(`INSERT OR IGNORE INTO relationships
-					(from_item_id, to_item_id, directed, label)
-					VALUES (?, ?, ?, ?)`,
-			fromItemRowID, toItemRowID, rr.Bidirectional, rr.Label)
+					(from_person_id, from_item_id, to_person_id, to_item_id, directed, label)
+					VALUES (?, ?, ?, ?, ?, ?)`,
+			fromPersonRowID, fromItemRowID, toPersonRowID, toItemRowID, !rr.Bidirectional, rr.Label)
 		if err != nil {
-			return 0, fmt.Errorf("storing raw item relationship: %v (from_item=%d to_item=%d directed=%t label=%v)",
-				err, fromItemRowID, toItemRowID, !rr.Bidirectional, rr.Label)
+			return 0, fmt.Errorf("storing raw item relationship: %v (from_person=%d from_item=%d to_person=%d to_item=%d directed=%t label=%v)",
+				err, fromPersonRowID, fromItemRowID, toPersonRowID, toItemRowID, !rr.Bidirectional, rr.Label)
 		}
 	}
 
@@ -543,8 +567,9 @@ func (wc *WrappedClient) loadItemRow(accountID int64, originalID string) (ItemRo
 // itemRowIDFromOriginalID returns an item's row ID from the ID
 // associated with the data source of wc, along with its original
 // item ID from that data source. If the item does not exist,
-// sql.ErrNoRows will be returned.
-func (wc *WrappedClient) itemRowIDFromOriginalID(originalID string) (int64, error) {
+// sql.ErrNoRows will be returned. A pointer is returned because
+// the column is nullable in the DB.
+func (wc *WrappedClient) itemRowIDFromOriginalID(originalID string) (*int64, error) {
 	var rowID int64
 	err := wc.tl.db.QueryRow(`SELECT items.id
 			FROM items, accounts
@@ -552,7 +577,19 @@ func (wc *WrappedClient) itemRowIDFromOriginalID(originalID string) (int64, erro
 				AND accounts.data_source_id=?
 				AND items.account_id = accounts.id
 			LIMIT 1`, originalID, wc.ds.ID).Scan(&rowID)
-	return rowID, err
+	return &rowID, err
+}
+
+// personRowIDFromUserID returns a person's row ID from the user ID
+// associated with the data source of wc. If the person does not exist,
+// sql.ErrNoRows will be returned. A pointer is returned because the
+// column is nullable in the DB.
+func (wc *WrappedClient) personRowIDFromUserID(userID string) (*int64, error) {
+	var rowID int64
+	err := wc.tl.db.QueryRow(`SELECT person_id FROM person_identities
+		WHERE data_source_id=? AND user_id=? LIMIT 1`,
+		wc.ds.ID, userID).Scan(&rowID)
+	return &rowID, err
 }
 
 // itemLocks is used to ensure that an item

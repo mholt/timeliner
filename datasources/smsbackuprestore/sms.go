@@ -128,11 +128,3 @@ func (s SMS) Metadata() (*timeliner.Metadata, error) {
 func (s SMS) Location() (*timeliner.Location, error) {
 	return nil, nil
 }
-
-const (
-	smsTypeReceived = 1
-	smsTypeSent     = 2
-
-	mmsAddrTypeRecipient = 151
-	mmsAddrTypeSender    = 137
-)
