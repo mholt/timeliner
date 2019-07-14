@@ -62,7 +62,8 @@ func init() {
 // API. It requires an OAuth2-authorized
 // HTTP client in order to work properly.
 type Client struct {
-	HTTPClient *http.Client
+	HTTPClient           *http.Client
+	IncludeArchivedMedia bool
 
 	userID     string
 	checkpoint checkpointInfo
@@ -147,6 +148,7 @@ func (c *Client) getItemsNextPage(itemChan chan<- *timeliner.ItemGraph,
 			DateFilter: listMediaItemsDateFilter{
 				Ranges: []listMediaItemsFilterRange{dateRange(timeframe)},
 			},
+			IncludeArchivedMedia: c.IncludeArchivedMedia,
 		}
 	}
 
