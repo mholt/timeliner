@@ -76,16 +76,39 @@ func (c *Client) ListItems(ctx context.Context, itemChan chan<- *timeliner.ItemG
 		return fmt.Errorf("decoding XML file: %v", err)
 	}
 
-	for i := range data.SMS {
-		data.SMS[i].client = c
-		itemChan <- timeliner.NewItemGraph(data.SMS[i])
+	for _, sms := range data.SMS {
+		sms.client = c
+		itemChan <- timeliner.NewItemGraph(sms)
 	}
 
-	for i := range data.MMS {
-		data.MMS[i].client = c
-		ig := timeliner.NewItemGraph(data.MMS[i])
-		// TODO: establish relationships or create collections
-		// for group texts (multiple recipients)
+	for _, mms := range data.MMS {
+		mms.client = c
+
+		ig := timeliner.NewItemGraph(mms)
+
+		// add relations to make sure other participants in a group text
+		// are recorded; necessary if more than two participants
+		if len(mms.Addrs.Addr) > 2 {
+			ownerNum, _ := mms.Owner()
+			if ownerNum != nil {
+				for _, addr := range mms.Addrs.Addr {
+					participantNum, err := c.standardizePhoneNumber(addr.Address)
+					if err != nil {
+						participantNum = addr.Address // oh well
+					}
+					// if this participant is not the owner of the message or
+					// the account owner, then it must be another group member
+					if participantNum != *ownerNum && participantNum != c.account.UserID {
+						ig.Relations = append(ig.Relations, timeliner.RawRelation{
+							FromItemID:     mms.ID(),
+							ToPersonUserID: participantNum,
+							Relation:       timeliner.RelCCed,
+						})
+					}
+				}
+			}
+		}
+
 		itemChan <- ig
 	}
 
@@ -115,3 +138,11 @@ func (c *Client) standardizePhoneNumber(number string) (string, error) {
 	}
 	return libphonenumber.Format(ph, libphonenumber.E164), nil
 }
+
+const (
+	smsTypeReceived = 1
+	smsTypeSent     = 2
+
+	mmsAddrTypeRecipient = 151
+	mmsAddrTypeSender    = 137
+)
