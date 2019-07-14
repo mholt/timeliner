@@ -20,6 +20,7 @@ import (
 	_ "github.com/mholt/timeliner/datasources/googlelocation"
 	_ "github.com/mholt/timeliner/datasources/googlephotos"
 	_ "github.com/mholt/timeliner/datasources/instagram"
+	"github.com/mholt/timeliner/datasources/smsbackuprestore"
 	"github.com/mholt/timeliner/datasources/twitter"
 )
 
@@ -35,6 +36,8 @@ func init() {
 
 	flag.BoolVar(&twitterRetweets, "twitter-retweets", twitterRetweets, "Twitter: include retweets")
 	flag.BoolVar(&twitterReplies, "twitter-replies", twitterReplies, "Twitter: include replies that are not just replies to self")
+
+	flag.StringVar(&phoneDefaultRegion, "phone-default-region", phoneDefaultRegion, "SMS Backup & Restore: default region")
 }
 
 func main() {
@@ -117,6 +120,8 @@ func main() {
 		case *twitter.Client:
 			v.Retweets = twitterRetweets
 			v.Replies = twitterReplies
+		case *smsbackuprestore.Client:
+			v.DefaultRegion = phoneDefaultRegion
 		}
 
 		clients = append(clients, wc)
@@ -296,4 +301,6 @@ var (
 
 	twitterRetweets bool
 	twitterReplies  bool
+
+	phoneDefaultRegion string = "US"
 )

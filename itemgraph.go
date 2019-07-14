@@ -141,6 +141,7 @@ const (
 	ClassLocation
 	ClassEmail
 	ClassPrivateMessage
+	ClassMessage
 )
 
 // These are the standard relationships that Timeliner
@@ -148,9 +149,10 @@ const (
 // required, but it makes it easier to translate them to
 // human-friendly phrases when visualizing the timeline.
 var (
-	RelReplyTo  = Relation{Label: "reply_to", Bidirectional: false} // "<from> is in reply to <to>"
-	RelAttached = Relation{Label: "attached", Bidirectional: true}  // "<to|from> is attached to <from|to>"
-	RelQuotes   = Relation{Label: "quotes", Bidirectional: false}   // "<from> quotes <to>"
+	RelReplyTo  = Relation{Label: "reply_to", Bidirectional: false}      // "<from> is in reply to <to>"
+	RelAttached = Relation{Label: "attached", Bidirectional: true}       // "<to|from> is attached to <from|to>"
+	RelQuotes   = Relation{Label: "quotes", Bidirectional: false}        // "<from> quotes <to>"
+	RelCCed     = Relation{Label: "carbon_copied", Bidirectional: false} // "<from_item> is carbon-copied to <to_person>"
 )
 
 // ItemRow has the structure of an item's row in our DB.
@@ -276,15 +278,20 @@ func (ig *ItemGraph) Connect(node *ItemGraph, rel Relation) {
 }
 
 // RawRelation represents a relationship between
-// two items from the same data source (but not
-// necessarily the same accounts; assuming that
-// a data source's item IDs are globally unique
-// across accounts). The item IDs should be those
-// which are assigned/provided by the data source,
-// NOT a database row ID.
+// two items or people (or both) from the same
+// data source (but not necessarily the same
+// accounts; we assume that a data source's item
+// IDs are globally unique across accounts).
+// The item IDs should be those which are
+// assigned/provided by the data source, NOT a
+// database row ID. Likewise, the persons' user
+// IDs should be the IDs of the user as associated
+// with the data source, NOT their row IDs.
 type RawRelation struct {
-	FromItemID string
-	ToItemID   string
+	FromItemID       string
+	ToItemID         string
+	FromPersonUserID string
+	ToPersonUserID   string
 	Relation
 }
 
