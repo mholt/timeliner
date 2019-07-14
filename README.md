@@ -40,6 +40,7 @@ Timeliner data sources are strictly _read-only_ meaning that no write permission
 	- [Google Photos](https://github.com/mholt/timeliner/wiki/Data-Source:-Google-Photos)
 	- [Twitter](https://github.com/mholt/timeliner/wiki/Data-Source:-Twitter)
 	- [Instagram](https://github.com/mholt/timeliner/wiki/Data-Source:-Instagram)
+	- [SMS Backup & Restore](https://github.com/mholt/timeliner/wiki/Data-Source:-SMS-Backup-&-Restore)
 	- **[Learn how to add more](https://github.com/mholt/timeliner/wiki/Writing-a-Data-Source)** - we'd love your contribution!
 - Checkpointing (resume interrupted downloads)
 - Pruning
