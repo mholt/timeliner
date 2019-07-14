@@ -141,6 +141,7 @@ const (
 	ClassLocation
 	ClassEmail
 	ClassPrivateMessage
+	ClassMessage
 )
 
 // These are the standard relationships that Timeliner
