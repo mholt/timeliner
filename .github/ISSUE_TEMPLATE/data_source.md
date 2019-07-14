@@ -19,38 +19,39 @@ PLEASE NOTE: This project is a community effort. We hope that after posting this
 
 
 
-## 2. How are items obtained from the data source?
+## 2. What constitutes an "item" from this data source?
+<!-- An item is an entry on the timeline. Some data sources have multiple things that are "items" - for example: photos, blog posts, or text messages can all be items. An item must make sense to put on a timeline, and items must have unique IDs. -->
+
+
+
+
+## 3. How are items obtained from the data source?
 <!-- Is there a free API that allows us to get content from this source? If so, what authentication is required? Or do we have to manually import data from a file? Please describe the process in detail and link to documentation! -->
 
 
 
 
-### 2a. If authentication is required, how does a user create or obtain credentials for Timeliner to access the data?
+### 3a. If authentication is required, how does a user create or obtain credentials for Timeliner to access the data?
 <!-- For example, APIs that use OAuth usually require creating an app or client with the service provider before their APIs can be accessed. What is that process? We will need to add this to the wiki for others to know how to get set up, so be clear and list the steps here. Check our project wiki first, because it might already be implemented (for example, Google OAuth is already in place.) -->
 
 
 
 
-### 2b. If an API is available, what are its rate limits?
+### 3b. If an API is available, what are its rate limits?
 <!-- Please link to rate limit documentation as well. -->
 
 
 
 
-### 2c. If a file is imported, how is the file obtained?
+### 3c. If a file is imported, how is the file obtained?
 <!-- What is the process a user must go through to obtain the specific file that the data source is designed to import from? -->
 
 
 
 
-### 2d. If a file is imported, how do we read the file?
+### 3d. If a file is imported, how do we read the file?
 <!-- Is the file a compressed archive? How do we get the items out? Is the content and metadata separate? Please link to any documentation or provide a sample file. -->
 
-
-
-
-## 3. What constitutes an "item" from this data source?
-<!-- An item is an entry on the timeline. Some data sources have multiple things that are "items" - for example: photos, blog posts, or text messages can all be items. An item must make sense to put on a timeline, and items must have unique IDs. -->
 
 
 
