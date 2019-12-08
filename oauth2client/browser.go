@@ -73,7 +73,7 @@ func (b Browser) Get(expectedStateVal, authCodeURL string) (string, error) {
 
 	err = openBrowser(authCodeURL)
 	if err != nil {
-		return "", err
+		fmt.Printf("Can't open browser: %s.\nPlease follow this link: %s", err, authCodeURL)
 	}
 
 	select {

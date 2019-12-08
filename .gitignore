@@ -1,5 +1,5 @@
 _gitignore/
 _storage/
 oauth2client/oauth2proxy/cmd/oauth2proxy/credentials.toml
-cmd/timeliner/timeliner.toml
+**/timeliner.toml
 cmc/timeliner/timeliner
