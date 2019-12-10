@@ -22,8 +22,7 @@ type tweet struct {
 	ExtendedEntities     *extendedEntities `json:"extended_entities,omitempty"`
 	FavoriteCount        transInt          `json:"favorite_count"`
 	Favorited            bool              `json:"favorited"`
-	FullText             string            `json:"full_text"`     // tweet_mode=extended (https://developer.twitter.com/en/docs/tweets/tweet-updates)
-	Geo                  *tweetGeo         `json:"geo,omitempty"` // deprecated, see coordinates
+	FullText             string            `json:"full_text"` // tweet_mode=extended (https://developer.twitter.com/en/docs/tweets/tweet-updates)
 	InReplyToScreenName  string            `json:"in_reply_to_screen_name,omitempty"`
 	InReplyToStatusID    transInt          `json:"in_reply_to_status_id,omitempty"`
 	InReplyToStatusIDStr string            `json:"in_reply_to_status_id_str,omitempty"`
@@ -198,8 +197,16 @@ func (t *tweet) rawText() string {
 }
 
 type tweetGeo struct {
-	Type        string   `json:"type"`
-	Coordinates []string `json:"coordinates"` // "latitude, then a longitude"
+	Type        string    `json:"type"`
+	Coordinates []float64 `json:"coordinates"` // use the getters because of unconventional order
+}
+
+func (t *tweetGeo) Latitude() float64 {
+	return t.Coordinates[1]
+}
+
+func (t *tweetGeo) Longitude() float64 {
+	return t.Coordinates[0]
 }
 
 type tweetPlace struct {
