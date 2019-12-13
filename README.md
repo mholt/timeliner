@@ -58,8 +58,10 @@ Some features are dependent upon the actual implementation of each data source. 
 
 ## Install
 
+**Minimum Go version required:** Go 1.13
+
 ```
-$ go get -u github.com/mholt/timeliner/cmd/timeliner
+$ go get github.com/mholt/timeliner/cmd/timeliner
 ```
 
 ## Tutorial
