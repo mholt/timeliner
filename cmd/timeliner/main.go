@@ -186,6 +186,33 @@ func main() {
 		}
 		wg.Wait()
 
+	case "get-favorites":
+		var wg sync.WaitGroup
+		for _, wc := range clients {
+			wg.Add(1)
+			go func(wc timeliner.WrappedClient) {
+				defer wg.Done()
+				ctx, cancel := context.WithCancel(context.Background())
+				for retryNum := 0; retryNum < 1+maxRetries; retryNum++ {
+					if retryNum > 0 {
+						log.Println("[INFO] Retrying command")
+					}
+					err := wc.GetFavorites(ctx, reprocess, prune, integrity)
+					if err != nil {
+						log.Printf("[ERROR][%s/%s] Downloading favorites: %v",
+							wc.DataSourceID(), wc.UserID(), err)
+						if retryAfter > 0 {
+							time.Sleep(retryAfter)
+						}
+						continue
+					}
+					break
+				}
+				defer cancel() // TODO: Make this useful, maybe?
+			}(wc)
+		}
+		wg.Wait()
+
 	case "import":
 		file := args[1]
 		wc := clients[0]

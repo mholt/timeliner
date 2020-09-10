@@ -94,6 +94,10 @@ type Options struct {
 	// A checkpoint from which to resume
 	// item retrieval.
 	Checkpoint []byte
+
+	// Favorites to download only favorite pics
+	// from Google Photos
+	Favorites   bool
 }
 
 // FakeCloser turns an io.Reader into an io.ReadCloser

@@ -216,6 +216,7 @@ type listMediaItemsFilter struct {
 	ExcludeNonAppCreatedData bool                          `json:"excludeNonAppCreatedData"`
 	ContentFilter            listMediaItemsContentFilter   `json:"contentFilter"`
 	MediaTypeFilter          listMediaItemsMediaTypeFilter `json:"mediaTypeFilter"`
+	FeatureFilter            listMediaItemsFeatureFilter   `json:"featureFilter"`
 }
 
 type listMediaItemsDateFilter struct {
@@ -241,6 +242,10 @@ type listMediaItemsContentFilter struct {
 
 type listMediaItemsMediaTypeFilter struct {
 	MediaTypes []string `json:"mediaTypes,omitempty"`
+}
+
+type listMediaItemsFeatureFilter struct {
+ 	IncludedFeatures         []string                      `json:"includedFeatures,omitempty"`
 }
 
 type listAlbums struct {

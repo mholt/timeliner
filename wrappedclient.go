@@ -127,6 +127,54 @@ func (wc *WrappedClient) GetAll(ctx context.Context, reprocess, prune, integrity
 	return nil
 }
 
+// GetFavorites gets all the items using wc. If reprocess is true, items that
+// are already in the timeline will be re-processed. If prune is true,
+// items that are not listed on the data source by wc will be removed
+// from the timeline at the end of the listing. If integrity is true,
+// all items that are listed by wc that exist in the timeline and which
+// consist of a data file will be opened and checked for integrity; if
+// the file has changed, it will be reprocessed.
+func (wc *WrappedClient) GetFavorites(ctx context.Context, reprocess, prune, integrity bool) error {
+	if wc.Client == nil {
+		return fmt.Errorf("no client")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx = context.WithValue(ctx, wrappedClientCtxKey, wc)
+
+	var cc concurrentCuckoo
+	if prune {
+		cc.Filter = cuckoo.NewFilter(10000000) // 10mil = ~16 MB on 64-bit
+		cc.Mutex = new(sync.Mutex)
+	}
+
+	wg, ch := wc.beginProcessing(cc, reprocess, integrity)
+
+	err := wc.Client.ListItems(ctx, ch, Options{Checkpoint: wc.acc.checkpoint, Favorites: true})
+	if err != nil {
+		return fmt.Errorf("getting items from service: %v", err)
+	}
+
+	// wait for processing to complete
+	wg.Wait()
+
+	err = wc.successCleanup()
+	if err != nil {
+		return fmt.Errorf("processing completed, but error cleaning up: %v", err)
+	}
+
+	// commence prune, if requested
+	if prune {
+		err := wc.doPrune(cc)
+		if err != nil {
+			return fmt.Errorf("processing completed, but error pruning: %v", err)
+		}
+	}
+
+	return nil
+}
+
 func (wc *WrappedClient) successCleanup() error {
 	// clear checkpoint
 	_, err := wc.tl.db.Exec(`UPDATE accounts SET checkpoint=NULL WHERE id=?`, wc.acc.ID) // TODO: limit 1

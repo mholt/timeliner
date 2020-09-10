@@ -84,7 +84,7 @@ func (c *Client) ListItems(ctx context.Context, itemChan chan<- *timeliner.ItemG
 	// get items and collections
 	errChan := make(chan error)
 	go func() {
-		err := c.listItems(ctx, itemChan, opt.Timeframe)
+		err := c.listItems(ctx, itemChan, opt.Timeframe, opt.Favorites)
 		errChan <- err
 	}()
 	go func() {
@@ -110,7 +110,7 @@ func (c *Client) ListItems(ctx context.Context, itemChan chan<- *timeliner.ItemG
 }
 
 func (c *Client) listItems(ctx context.Context, itemChan chan<- *timeliner.ItemGraph,
-	timeframe timeliner.Timeframe) error {
+	timeframe timeliner.Timeframe, favorites bool) error {
 	c.checkpoint.mu.Lock()
 	pageToken := c.checkpoint.ItemsNextPage
 	c.checkpoint.mu.Unlock()
@@ -121,7 +121,7 @@ func (c *Client) listItems(ctx context.Context, itemChan chan<- *timeliner.ItemG
 			return nil
 		default:
 			var err error
-			pageToken, err = c.getItemsNextPage(itemChan, pageToken, timeframe)
+			pageToken, err = c.getItemsNextPage(itemChan, pageToken, timeframe, favorites)
 			if err != nil {
 				return fmt.Errorf("getting items on next page: %v", err)
 			}
@@ -138,12 +138,18 @@ func (c *Client) listItems(ctx context.Context, itemChan chan<- *timeliner.ItemG
 }
 
 func (c *Client) getItemsNextPage(itemChan chan<- *timeliner.ItemGraph,
-	pageToken string, timeframe timeliner.Timeframe) (string, error) {
+	pageToken string, timeframe timeliner.Timeframe, favorites bool) (string, error) {
 	reqBody := listMediaItemsRequest{
 		PageSize:  100,
 		PageToken: pageToken,
 	}
-	if timeframe.Since != nil || timeframe.Until != nil {
+	if favorites {
+		reqBody.Filters = &listMediaItemsFilter{
+			FeatureFilter: listMediaItemsFeatureFilter{
+				IncludedFeatures: []string{"FAVORITES"},
+			},
+		}
+	} else if timeframe.Since != nil || timeframe.Until != nil {
 		reqBody.Filters = &listMediaItemsFilter{
 			DateFilter: listMediaItemsDateFilter{
 				Ranges: []listMediaItemsFilterRange{dateRange(timeframe)},
