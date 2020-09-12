@@ -355,8 +355,10 @@ func (c *Client) apiRequestWithRetry(method, endpoint string, reqBodyData, respI
 
 func (c *Client) apiRequest(method, endpoint string, reqBodyData interface{}) (*http.Response, error) {
 	var reqBody io.Reader
+	fmt.Printf("%v", reqBodyData)
 	if reqBodyData != nil {
 		reqBodyBytes, err := json.Marshal(reqBodyData)
+		fmt.Printf("%s", reqBodyBytes)
 		if err != nil {
 			return nil, err
 		}
