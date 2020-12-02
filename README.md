@@ -1,4 +1,4 @@
-Timeliner [![timeliner GoDoc](https://img.shields.io/badge/reference-godoc-blue.svg?style=flat-square)](https://godoc.org/github.com/mholt/timeliner)
+Timeliner [![timeliner godoc](https://pkg.go.dev/badge/github.com/mholt/timeliner)](https://pkg.go.dev/github.com/mholt/timeliner)
 =========
 
 **Sponsored by Relica - Cross-platform local and cloud file backup:**

@@ -16,7 +16,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/mholt/archiver"
+	"github.com/mholt/archiver/v3"
 	"github.com/mholt/timeliner"
 )
 

@@ -8,7 +8,7 @@ import (
 
 func TestDecodeTwitterAccount(t *testing.T) {
 	// try decode a "kitchen sink", so that we can test that most features get decoded correctly
-	twitterAccountApiResponseJson := strings.NewReader(`
+	twitterAccountAPIResponseJSON := strings.NewReader(`
 {
   "id": 9876543,
   "id_str": "9876543",
@@ -179,7 +179,7 @@ func TestDecodeTwitterAccount(t *testing.T) {
 `)
 
 	var acc twitterAccount
-	assertTrue(t, json.NewDecoder(twitterAccountApiResponseJson).Decode(&acc) == nil)
+	assertTrue(t, json.NewDecoder(twitterAccountAPIResponseJSON).Decode(&acc) == nil)
 
 	// NOTE: assertions skipped for fields typed interface{}
 
@@ -262,9 +262,9 @@ func TestDecodeTwitterAccount(t *testing.T) {
 	// I was too lazy to type assertions for the "entities" hierarchy, so we're just comparing
 	// re-serialized versions. this would catch if we would have had typos in JSON field
 	// names (they would not get decoded, and hence would not get re-serialized)
-	entitiesJson, err := json.MarshalIndent(latestTweet.Entities, "", "  ")
+	entitiesJSON, err := json.MarshalIndent(latestTweet.Entities, "", "  ")
 	assertTrue(t, err == nil)
-	assertEqualString(t, string(entitiesJson), `{
+	assertEqualString(t, string(entitiesJSON), `{
   "hashtags": [
     {
       "indices": [
