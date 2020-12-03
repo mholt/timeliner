@@ -21,6 +21,7 @@ type Account struct {
 
 	t  *Timeline
 	ds DataSource
+	cp *checkpointWrapper
 }
 
 // NewHTTPClient returns an HTTP client that is suitable for use
@@ -152,6 +153,12 @@ func (t *Timeline) getAccount(dsID, userID string) (Account, error) {
 		dsID, userID).Scan(&acc.ID, &acc.DataSourceID, &acc.UserID, &acc.authorization, &acc.checkpoint, &acc.lastItemID)
 	if err != nil {
 		return acc, fmt.Errorf("querying account %s/%s from DB: %v", dsID, userID, err)
+	}
+	if acc.checkpoint != nil {
+		err = UnmarshalGob(acc.checkpoint, &acc.cp)
+		if err != nil {
+			return acc, fmt.Errorf("decoding checkpoint wrapper: %v", err)
+		}
 	}
 	return acc, nil
 }

@@ -25,12 +25,20 @@ type WrappedClient struct {
 	lastItemRowID     int64
 	lastItemTimestamp time.Time
 	lastItemMu        *sync.Mutex
+
+	// used with checkpoints; it only makes sense to resume a checkpoint
+	// if the process has the same operational parameters as before;
+	// some providers (like Google Photos) even return errors if you
+	// query a "next page" with different parameters
+	commandParams string
 }
 
 // GetLatest gets the most recent items from wc. It does not prune or
 // reprocess; only meant for a quick pull. If there are no items pulled
-// yet, all items will be pulled.
-func (wc *WrappedClient) GetLatest(ctx context.Context) error {
+// yet, all items will be pulled. If until is not nil, the latest only
+// up to that timestamp will be pulled, and if until is after the latest
+// item, no items will be pulled.
+func (wc *WrappedClient) GetLatest(ctx context.Context, until *time.Time) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -49,20 +57,26 @@ func (wc *WrappedClient) GetLatest(ctx context.Context) error {
 	}
 
 	// constrain the pull to the recent timeframe
-	timeframe := Timeframe{}
+	timeframe := Timeframe{Until: until}
 	if mostRecentTimestamp > 0 {
 		ts := time.Unix(mostRecentTimestamp, 0)
 		timeframe.Since = &ts
+		if timeframe.Until.Before(ts) {
+			// most recent item is already after "until"/end date; nothing to do
+			return nil
+		}
 	}
 	if mostRecentOriginalID != "" {
 		timeframe.SinceItemID = &mostRecentOriginalID
 	}
 
+	checkpoint := wc.prepareCheckpoint(timeframe)
+
 	wg, ch := wc.beginProcessing(concurrentCuckoo{}, false, false)
 
 	err := wc.Client.ListItems(ctx, ch, Options{
 		Timeframe:  timeframe,
-		Checkpoint: wc.acc.checkpoint,
+		Checkpoint: checkpoint,
 	})
 	if err != nil {
 		return fmt.Errorf("getting items from service: %v", err)
@@ -86,7 +100,7 @@ func (wc *WrappedClient) GetLatest(ctx context.Context) error {
 // all items that are listed by wc that exist in the timeline and which
 // consist of a data file will be opened and checked for integrity; if
 // the file has changed, it will be reprocessed.
-func (wc *WrappedClient) GetAll(ctx context.Context, reprocess, prune, integrity bool) error {
+func (wc *WrappedClient) GetAll(ctx context.Context, reprocess, prune, integrity bool, tf Timeframe) error {
 	if wc.Client == nil {
 		return fmt.Errorf("no client")
 	}
@@ -101,9 +115,11 @@ func (wc *WrappedClient) GetAll(ctx context.Context, reprocess, prune, integrity
 		cc.Mutex = new(sync.Mutex)
 	}
 
+	checkpoint := wc.prepareCheckpoint(tf)
+
 	wg, ch := wc.beginProcessing(cc, reprocess, integrity)
 
-	err := wc.Client.ListItems(ctx, ch, Options{Checkpoint: wc.acc.checkpoint})
+	err := wc.Client.ListItems(ctx, ch, Options{Checkpoint: checkpoint, Timeframe: tf})
 	if err != nil {
 		return fmt.Errorf("getting items from service: %v", err)
 	}
@@ -125,6 +141,19 @@ func (wc *WrappedClient) GetAll(ctx context.Context, reprocess, prune, integrity
 	}
 
 	return nil
+}
+
+// prepareCheckpoint sets the current command parameters on wc for
+// checkpoints to be saved later on, and then returns the last
+// checkpoint data only if its parameters match the new/current ones.
+// This prevents trying to resume a process with different parameters
+// which can cause errors.
+func (wc *WrappedClient) prepareCheckpoint(tf Timeframe) []byte {
+	wc.commandParams = tf.String()
+	if wc.acc.cp == nil || wc.acc.cp.Params != wc.commandParams {
+		return nil
+	}
+	return wc.acc.cp.Data
 }
 
 func (wc *WrappedClient) successCleanup() error {

@@ -17,6 +17,7 @@ import (
 
 	// plug in data sources
 	_ "github.com/mholt/timeliner/datasources/facebook"
+	_ "github.com/mholt/timeliner/datasources/gmail"
 	_ "github.com/mholt/timeliner/datasources/googlelocation"
 	_ "github.com/mholt/timeliner/datasources/googlephotos"
 	_ "github.com/mholt/timeliner/datasources/instagram"
@@ -33,6 +34,9 @@ func init() {
 	flag.BoolVar(&prune, "prune", prune, "When finishing, delete items not found on remote (download-all or import only)")
 	flag.BoolVar(&integrity, "integrity", integrity, "Perform integrity check on existing items and reprocess if needed (download-all or import only)")
 	flag.BoolVar(&reprocess, "reprocess", reprocess, "Reprocess every item that has not been modified locally (download-all or import only)")
+
+	flag.StringVar(&tfStartInput, "start", "", "Timeframe start (relative=duration, absolute=YYYY/MM/DD)")
+	flag.StringVar(&tfEndInput, "end", "", "Timeframe end (relative=duration, absolute=YYYY/MM/DD)")
 
 	flag.BoolVar(&twitterRetweets, "twitter-retweets", twitterRetweets, "Twitter: include retweets")
 	flag.BoolVar(&twitterReplies, "twitter-replies", twitterReplies, "Twitter: include replies that are not just replies to self")
@@ -129,8 +133,13 @@ func main() {
 
 	switch subcmd {
 	case "get-latest":
-		if reprocess || prune || integrity {
-			log.Fatalf("[FATAL] The get-latest subcommand does not support -reprocess, -prune, or -integrity")
+		if reprocess || prune || integrity || tfStartInput != "" {
+			log.Fatalf("[FATAL] The get-latest subcommand does not support -reprocess, -prune, -integrity, or -start")
+		}
+
+		_, tfEnd, err := parseTimeframe()
+		if err != nil {
+			log.Fatalf("[FATAL] %v", err)
 		}
 
 		var wg sync.WaitGroup
@@ -143,7 +152,7 @@ func main() {
 					if retryNum > 0 {
 						log.Println("[INFO] Retrying command")
 					}
-					err := wc.GetLatest(ctx)
+					err := wc.GetLatest(ctx, tfEnd)
 					if err != nil {
 						log.Printf("[ERROR][%s/%s] Getting latest: %v",
 							wc.DataSourceID(), wc.UserID(), err)
@@ -160,6 +169,11 @@ func main() {
 		wg.Wait()
 
 	case "get-all":
+		tfStart, tfEnd, err := parseTimeframe()
+		if err != nil {
+			log.Fatalf("[FATAL] %v", err)
+		}
+
 		var wg sync.WaitGroup
 		for _, wc := range clients {
 			wg.Add(1)
@@ -170,7 +184,7 @@ func main() {
 					if retryNum > 0 {
 						log.Println("[INFO] Retrying command")
 					}
-					err := wc.GetAll(ctx, reprocess, prune, integrity)
+					err := wc.GetAll(ctx, reprocess, prune, integrity, timeliner.Timeframe{Since: tfStart, Until: tfEnd})
 					if err != nil {
 						log.Printf("[ERROR][%s/%s] Downloading all: %v",
 							wc.DataSourceID(), wc.UserID(), err)
@@ -201,6 +215,47 @@ func main() {
 	default:
 		log.Fatalf("[FATAL] Unrecognized subcommand: %s", subcmd)
 	}
+}
+
+// parseTimeframe parses tfStartInput and/or tfEndInput and returns
+// the resulting start and end times (may be nil), or an error.
+func parseTimeframe() (start, end *time.Time, err error) {
+	var tfStart, tfEnd time.Time
+	if tfStartInput != "" {
+		var tfStartRel time.Duration
+		tfStartRel, err = time.ParseDuration(tfStartInput)
+		if err == nil {
+			tfStart = time.Now().Add(tfStartRel)
+		} else {
+			tfStart, err = time.Parse(dateFormat, tfStartInput)
+			if err != nil {
+				err = fmt.Errorf("bad timeframe start value '%s': %v", tfStartInput, err)
+				return
+			}
+		}
+		start = &tfStart
+	}
+
+	if tfEndInput != "" {
+		var tfEndRel time.Duration
+		tfEndRel, err = time.ParseDuration(tfEndInput)
+		if err == nil {
+			tfEnd = time.Now().Add(tfEndRel)
+		} else {
+			tfEnd, err = time.Parse(dateFormat, tfEndInput)
+			if err != nil {
+				err = fmt.Errorf("bad timeframe end value '%s': %v", tfEndInput, err)
+				return
+			}
+		}
+		end = &tfEnd
+	}
+
+	if start != nil && end != nil && end.Before(*start) {
+		err = fmt.Errorf("end time must be after start time (start=%s end=%s)", start, end)
+	}
+
+	return
 }
 
 func loadConfig() error {
@@ -299,8 +354,12 @@ var (
 	prune     bool
 	reprocess bool
 
+	tfStartInput, tfEndInput string
+
 	twitterRetweets bool
 	twitterReplies  bool
 
 	phoneDefaultRegion string = "US"
 )
+
+const dateFormat = "2006/01/02" // YYYY/MM/DD

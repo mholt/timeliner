@@ -133,10 +133,27 @@ func Checkpoint(ctx context.Context, checkpoint []byte) {
 		return
 	}
 
-	_, err := wc.tl.db.Exec(`UPDATE accounts SET checkpoint=? WHERE id=?`, // TODO: LIMIT 1 (see https://github.com/mattn/go-sqlite3/pull/564)
-		checkpoint, wc.acc.ID)
+	chkpt, err := MarshalGob(checkpointWrapper{wc.commandParams, checkpoint})
+	if err != nil {
+		log.Printf("[ERROR][%s/%s] Encoding checkpoint wrapper: %v", wc.ds.ID, wc.acc.UserID, err)
+		return
+	}
+
+	_, err = wc.tl.db.Exec(`UPDATE accounts SET checkpoint=? WHERE id=?`, // TODO: LIMIT 1 (see https://github.com/mattn/go-sqlite3/pull/564)
+		chkpt, wc.acc.ID)
 	if err != nil {
 		log.Printf("[ERROR][%s/%s] Checkpoint: %v", wc.ds.ID, wc.acc.UserID, err)
 		return
 	}
+}
+
+// checkpointWrapper stores a provider's checkpoint along with the
+// parameters of the command that initiated the process; the checkpoint
+// will only be loaded and restored to the provider on next run if
+// the parameters match, because it doesn't make sense to restore a
+// process that has different, potentially conflicting, parameters,
+// such as timeframe.
+type checkpointWrapper struct {
+	Params string
+	Data   []byte
 }

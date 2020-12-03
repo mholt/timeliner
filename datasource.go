@@ -212,4 +212,16 @@ type Timeframe struct {
 	SinceItemID, UntilItemID *string
 }
 
+func (tf Timeframe) String() string {
+	var sinceItemID, untilItemID string
+	if tf.SinceItemID != nil {
+		sinceItemID = *tf.SinceItemID
+	}
+	if tf.UntilItemID != nil {
+		untilItemID = *tf.UntilItemID
+	}
+	return fmt.Sprintf("{Since:%s Until:%s SinceItemID:%s UntilItemID:%s}",
+		tf.Since, tf.Until, sinceItemID, untilItemID)
+}
+
 var dataSources = make(map[string]DataSource)
