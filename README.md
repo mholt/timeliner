@@ -46,6 +46,7 @@ Timeliner data sources are strictly _read-only_ meaning that no write permission
 - Pruning
 - Integrity checks
 - Deduplication
+- Timeframing
 - Differential reprocessing (only re-process items that have changed on the source)
 - Construct graph-like relationships between items and people
 - Memory-efficient for high-volume data processing
@@ -71,7 +72,7 @@ _After you've read this tutorial, [the Timeliner wiki](https://github.com/mholt/
 These are the basic steps for getting set up:
 
 1. Create a `timeliner.toml` config file (if any data sources require authentication)
-2. Add your data source accounts to your timeline
+2. Add your data source accounts
 3. Begin filling your timeline!
 
 All items are associated with an account from whence they come. Even if a data source doesn't have the concept of accounts, Timeliner still has to think there is one.
@@ -110,10 +111,45 @@ This process can take weeks if you have a large library. Even if you have a fast
 
 If you open your timeline folder in a file browser, you will see it start to fill up with your photos from Google Photos.
 
-Data sources may create checkpoints as they go. If so, `get-all` or `get-latest` will automatically resume the last listing if it was interrupted. In the case of Google Photos, each page of API results is checkpointed. Checkpoints are not intended for long-term pauses. In other words, a resume should happen fairly shortly after being interrupted.
+Data sources may create checkpoints as they go. If so, `get-all` or `get-latest` will automatically resume the last listing if it was interrupted. In the case of Google Photos, each page of API results is checkpointed. Checkpoints are not intended for long-term pauses. In other words, a resume should happen fairly shortly after being interrupted, and should be resumed using the same command as before. (A checkpoint will be automatically resumed only if the command parameters are identical.)
 
 Item processing is idempotent, so as long as items have faithfully-unique IDs across each account, items that already exist in the timeline will be skipped and/or processed much faster.
 
+
+### Constraining within a timeframe
+
+You can use the `-start` and `-end` flags to specify either absolute dates within which to constrain data collection, or with [duration values](https://golang.org/pkg/time/#ParseDuration) to specify a date relative to the current timestamp. These flags appear before the subcommand.
+
+To get all the items newer than a certain date:
+
+
+```
+$ timeliner -start 2019/07/1 get-all ...
+```
+
+This will get all items dated July 1, 2019 or newer.
+
+To get all items older than certain date:
+
+```
+$ timeliner -end 2020/02/29 get-all ...
+```
+
+This processes all items before February 29, 2020.
+
+To create a bounded window, use both:
+
+```
+$ timeliner -start 2019/07/01 -end 2020/02/29 get-all ...
+```
+
+Durations can be used for relative dates. To get all items up to 30 days old:
+
+```
+$ timeliner -end "-720h" get-all ...
+```
+
+Notice how the duration value is negative; this is because you want the end date to be 720 hours (30 days) in the past, not in the future. (The quotes are not necessary but I included them in the example to help differentiate the flag value from the flag name, since it happens to start with a hyphen.)
 
 
 ### Pulling the latest
@@ -126,7 +162,9 @@ $ timeliner get-latest google_photos/you@gmail.com
 
 This will get only the items timestamped newer than the newest item in your timeline (from the last successful run).
 
-If `get-latest` is interrupted after adding some newer items to the timeline, the next run of `get-latest` will not stop at the first new item added last time; it is smart enough to know that it was interrupted and needs to keep getting items all the way until the beginning of the last _successful_ run.
+If `get-latest` is interrupted after adding some newer items to the timeline, the next run of `get-latest` will not stop at the first new item added last time; it is smart enough to know that it was interrupted and needs to keep getting items all the way until the beginning of the last _successful_ run, as long as the command's parameters are the same. For example, re-running the last command will automatically resume where it left off, but changing the `-end` flag, for example, won't be able to resume.
+
+This subcommand supports the `-end` flag, but not the `-start` flag (since the start is determined from the last downloaded item). One thing I like to do is use `-end -720h` with my Google Photos to only download the latest photos that are at least 30 days old. This gives me a month to delete unwanted/duplicate photos from my cloud library before I store them on my computer permanently.
 
 
 ### Reprocessing items
@@ -146,9 +184,13 @@ TODO: Maybe we should change the flag name to `-update`?
 
 Suppose you downloaded a bunch of photos with Timeliner that you later deleted from Google Photos. Timeliner can remove those items from your local timeline, too, to save disk space and keep things clean.
 
-However, this involves doing a complete listing of all the items. Pruning happens at the end. Any items not seen in the listing will be deleted. This also means that a full, uninterrupted listing is required, since resuming from a checkpoint yields an incomplete file listing. Pruning after a resumed listing will result in an error. (There's a TODO to improve this situation -- feel free to contribute! We just need to preserve the item listing along with the checkpoint.)
+To schedule a prune, just run with the `-prune` flag: 
 
-To schedule a prune, just run with the `-prune` flag: `timeliner -prune get-all ...`.
+```
+$ timeliner -prune get-all ...
+```
+
+However, this involves doing a complete listing of all the items. Pruning happens at the end. Any items not seen in the listing will be deleted. This also means that a full, uninterrupted listing is required, since resuming from a checkpoint yields an incomplete file listing. Pruning after a resumed listing will result in an error. (There's a TODO to improve this situation -- feel free to contribute! We just need to preserve the item listing along with the checkpoint.)
 
 
 ### Reauthenticating with a data source
