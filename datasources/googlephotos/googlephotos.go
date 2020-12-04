@@ -75,7 +75,7 @@ func (c *Client) ListItems(ctx context.Context, itemChan chan<- *timeliner.ItemG
 	defer close(itemChan)
 
 	if opt.Filename != "" {
-		return fmt.Errorf("importing data from a file is not supported")
+		return c.listFromTakeoutArchive(ctx, itemChan, opt)
 	}
 
 	// load any previous checkpoint
