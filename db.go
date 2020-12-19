@@ -88,8 +88,8 @@ CREATE TABLE IF NOT EXISTS "items" (
 	"account_id" INTEGER NOT NULL,
 	"original_id" TEXT NOT NULL, -- ID provided by the data source
 	"person_id" INTEGER NOT NULL,
-	"timestamp" INTEGER, -- timestamp when item content was originally created
-	"stored" INTEGER NOT NULL DEFAULT (strftime('%s', CURRENT_TIME)), -- timestamp row was created - TODO not sure if needed
+	"timestamp" INTEGER, -- timestamp when item content was originally created (NOT when the database row was created)
+	"stored" INTEGER NOT NULL DEFAULT (strftime('%s', CURRENT_TIME)), -- timestamp row was created or last updated from source
 	"modified" INTEGER, -- timestamp when item was locally modified; if not null, then item is "not clean"
 	"class" INTEGER,
 	"mime_type" TEXT,
@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS "items" (
 
 CREATE INDEX IF NOT EXISTS "idx_items_timestamp" ON "items"("timestamp");
 CREATE INDEX IF NOT EXISTS "idx_items_data_text" ON "items"("data_text");
+CREATE INDEX IF NOT EXISTS "idx_items_data_file" ON "items"("data_file");
 CREATE INDEX IF NOT EXISTS "idx_items_data_hash" ON "items"("data_hash");
 
 -- Relationships draws relationships between and across items and persons.

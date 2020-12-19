@@ -12,7 +12,7 @@ import (
 	"github.com/mholt/timeliner"
 )
 
-func (c *Client) getFromAPI(ctx context.Context, itemChan chan<- *timeliner.ItemGraph, opt timeliner.Options) error {
+func (c *Client) getFromAPI(ctx context.Context, itemChan chan<- *timeliner.ItemGraph, opt timeliner.ListingOptions) error {
 	// load any previous checkpoint
 	c.checkpoint.load(opt.Checkpoint)
 

@@ -72,9 +72,9 @@ func (wc *WrappedClient) GetLatest(ctx context.Context, until *time.Time) error 
 
 	checkpoint := wc.prepareCheckpoint(timeframe)
 
-	wg, ch := wc.beginProcessing(concurrentCuckoo{}, false, false)
+	wg, ch := wc.beginProcessing(concurrentCuckoo{}, ProcessingOptions{})
 
-	err := wc.Client.ListItems(ctx, ch, Options{
+	err := wc.Client.ListItems(ctx, ch, ListingOptions{
 		Timeframe:  timeframe,
 		Checkpoint: checkpoint,
 	})
@@ -93,14 +93,14 @@ func (wc *WrappedClient) GetLatest(ctx context.Context, until *time.Time) error 
 	return nil
 }
 
-// GetAll gets all the items using wc. If reprocess is true, items that
-// are already in the timeline will be re-processed. If prune is true,
+// GetAll gets all the items using wc. If procOpt.Reprocess is true, items that
+// are already in the timeline will be re-processed. If procOpt.Prune is true,
 // items that are not listed on the data source by wc will be removed
-// from the timeline at the end of the listing. If integrity is true,
+// from the timeline at the end of the listing. If procOpt.Integrity is true,
 // all items that are listed by wc that exist in the timeline and which
 // consist of a data file will be opened and checked for integrity; if
 // the file has changed, it will be reprocessed.
-func (wc *WrappedClient) GetAll(ctx context.Context, reprocess, prune, integrity bool, tf Timeframe) error {
+func (wc *WrappedClient) GetAll(ctx context.Context, procOpt ProcessingOptions) error {
 	if wc.Client == nil {
 		return fmt.Errorf("no client")
 	}
@@ -110,16 +110,16 @@ func (wc *WrappedClient) GetAll(ctx context.Context, reprocess, prune, integrity
 	ctx = context.WithValue(ctx, wrappedClientCtxKey, wc)
 
 	var cc concurrentCuckoo
-	if prune {
+	if procOpt.Prune {
 		cc.Filter = cuckoo.NewFilter(10000000) // 10mil = ~16 MB on 64-bit
 		cc.Mutex = new(sync.Mutex)
 	}
 
-	checkpoint := wc.prepareCheckpoint(tf)
+	checkpoint := wc.prepareCheckpoint(procOpt.Timeframe)
 
-	wg, ch := wc.beginProcessing(cc, reprocess, integrity)
+	wg, ch := wc.beginProcessing(cc, procOpt)
 
-	err := wc.Client.ListItems(ctx, ch, Options{Checkpoint: checkpoint, Timeframe: tf})
+	err := wc.Client.ListItems(ctx, ch, ListingOptions{Checkpoint: checkpoint, Timeframe: procOpt.Timeframe})
 	if err != nil {
 		return fmt.Errorf("getting items from service: %v", err)
 	}
@@ -133,7 +133,7 @@ func (wc *WrappedClient) GetAll(ctx context.Context, reprocess, prune, integrity
 	}
 
 	// commence prune, if requested
-	if prune {
+	if procOpt.Prune {
 		err := wc.doPrune(cc)
 		if err != nil {
 			return fmt.Errorf("processing completed, but error pruning: %v", err)
@@ -158,7 +158,7 @@ func (wc *WrappedClient) prepareCheckpoint(tf Timeframe) []byte {
 
 func (wc *WrappedClient) successCleanup() error {
 	// clear checkpoint
-	_, err := wc.tl.db.Exec(`UPDATE accounts SET checkpoint=NULL WHERE id=?`, wc.acc.ID) // TODO: limit 1
+	_, err := wc.tl.db.Exec(`UPDATE accounts SET checkpoint=NULL WHERE id=?`, wc.acc.ID) // TODO: limit 1 (see https://github.com/mattn/go-sqlite3/pull/802)
 	if err != nil {
 		return fmt.Errorf("clearing checkpoint: %v", err)
 	}
@@ -181,22 +181,23 @@ func (wc *WrappedClient) successCleanup() error {
 // Import is like GetAll but for a locally-stored archive or export file that can
 // simply be opened and processed, rather than needing to run over a network. See
 // the godoc for GetAll. This is only for data sources that support Import.
-func (wc *WrappedClient) Import(ctx context.Context, filename string, reprocess, prune, integrity bool) error {
+func (wc *WrappedClient) Import(ctx context.Context, filename string, procOpt ProcessingOptions) error {
 	if wc.Client == nil {
 		return fmt.Errorf("no client")
 	}
 
 	var cc concurrentCuckoo
-	if prune {
+	if procOpt.Prune {
 		cc.Filter = cuckoo.NewFilter(10000000) // 10mil = ~16 MB on 64-bit
 		cc.Mutex = new(sync.Mutex)
 	}
 
-	wg, ch := wc.beginProcessing(cc, reprocess, integrity)
+	wg, ch := wc.beginProcessing(cc, procOpt)
 
-	err := wc.Client.ListItems(ctx, ch, Options{
+	err := wc.Client.ListItems(ctx, ch, ListingOptions{
 		Filename:   filename,
 		Checkpoint: wc.acc.checkpoint,
+		Timeframe:  procOpt.Timeframe,
 	})
 	if err != nil {
 		return fmt.Errorf("importing: %v", err)
@@ -211,7 +212,7 @@ func (wc *WrappedClient) Import(ctx context.Context, filename string, reprocess,
 	}
 
 	// commence prune, if requested
-	if prune {
+	if procOpt.Prune {
 		err := wc.doPrune(cc)
 		if err != nil {
 			return fmt.Errorf("processing completed, but error pruning: %v", err)
@@ -306,7 +307,7 @@ func (wc *WrappedClient) deleteItem(rowID int64) error {
 		return fmt.Errorf("querying count of rows sharing data file: %v", err)
 	}
 
-	_, err = wc.tl.db.Exec(`DELETE FROM items WHERE id=?`, rowID) // TODO: limit 1
+	_, err = wc.tl.db.Exec(`DELETE FROM items WHERE id=?`, rowID) // TODO: limit 1 (see https://github.com/mattn/go-sqlite3/pull/802)
 	if err != nil {
 		return fmt.Errorf("deleting item from DB: %v", err)
 	}

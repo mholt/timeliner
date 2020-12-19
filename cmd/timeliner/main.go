@@ -34,6 +34,8 @@ func init() {
 	flag.BoolVar(&prune, "prune", prune, "When finishing, delete items not found on remote (download-all or import only)")
 	flag.BoolVar(&integrity, "integrity", integrity, "Perform integrity check on existing items and reprocess if needed (download-all or import only)")
 	flag.BoolVar(&reprocess, "reprocess", reprocess, "Reprocess every item that has not been modified locally (download-all or import only)")
+	flag.BoolVar(&softMerge, "softmerge", softMerge, "Merge incoming data with existing row using 'soft' keys (account ID + item timestamp + one of text, filename, and hash)")
+	flag.StringVar(&keep, "keep", keep, "Comma-separated list of existing values to keep if merge is performed (preferring existing value): id,ts,text,file")
 
 	flag.StringVar(&tfStartInput, "start", "", "Timeframe start (relative=duration, absolute=YYYY/MM/DD)")
 	flag.StringVar(&tfEndInput, "end", "", "Timeframe end (relative=duration, absolute=YYYY/MM/DD)")
@@ -111,6 +113,37 @@ func main() {
 		return
 	}
 
+	// get the timeframe within which to constrain item processing (multiple commands use this)
+	tf, err := parseTimeframe()
+	if err != nil {
+		log.Fatalf("[FATAL] %v", err)
+	}
+
+	// make the processing options
+	mergeOptions := timeliner.MergeOptions{SoftMerge: softMerge}
+	keepFields := strings.Split(keep, ",")
+	for _, val := range keepFields {
+		switch val {
+		case "id":
+			mergeOptions.PreferExistingID = true
+		case "ts":
+			mergeOptions.PreferExistingTimestamp = true
+		case "text":
+			mergeOptions.PreferExistingDataText = true
+		case "file":
+			mergeOptions.PreferExistingDataFile = true
+		default:
+			log.Fatalf("[FATAL] Unrecognized value for 'keep' argument: '%s'", val)
+		}
+	}
+	procOpt := timeliner.ProcessingOptions{
+		Reprocess: reprocess,
+		Prune:     prune,
+		Integrity: integrity,
+		Timeframe: tf,
+		Merge:     mergeOptions,
+	}
+
 	// make a client for each account
 	var clients []timeliner.WrappedClient
 	for _, a := range accounts {
@@ -133,13 +166,8 @@ func main() {
 
 	switch subcmd {
 	case "get-latest":
-		if reprocess || prune || integrity || tfStartInput != "" {
+		if procOpt.Reprocess || procOpt.Prune || procOpt.Integrity || procOpt.Timeframe.Since != nil {
 			log.Fatalf("[FATAL] The get-latest subcommand does not support -reprocess, -prune, -integrity, or -start")
-		}
-
-		_, tfEnd, err := parseTimeframe()
-		if err != nil {
-			log.Fatalf("[FATAL] %v", err)
 		}
 
 		var wg sync.WaitGroup
@@ -152,7 +180,7 @@ func main() {
 					if retryNum > 0 {
 						log.Println("[INFO] Retrying command")
 					}
-					err := wc.GetLatest(ctx, tfEnd)
+					err := wc.GetLatest(ctx, tf.Until)
 					if err != nil {
 						log.Printf("[ERROR][%s/%s] Getting latest: %v",
 							wc.DataSourceID(), wc.UserID(), err)
@@ -169,11 +197,6 @@ func main() {
 		wg.Wait()
 
 	case "get-all":
-		tfStart, tfEnd, err := parseTimeframe()
-		if err != nil {
-			log.Fatalf("[FATAL] %v", err)
-		}
-
 		var wg sync.WaitGroup
 		for _, wc := range clients {
 			wg.Add(1)
@@ -184,7 +207,7 @@ func main() {
 					if retryNum > 0 {
 						log.Println("[INFO] Retrying command")
 					}
-					err := wc.GetAll(ctx, reprocess, prune, integrity, timeliner.Timeframe{Since: tfStart, Until: tfEnd})
+					err := wc.GetAll(ctx, procOpt)
 					if err != nil {
 						log.Printf("[ERROR][%s/%s] Downloading all: %v",
 							wc.DataSourceID(), wc.UserID(), err)
@@ -205,7 +228,7 @@ func main() {
 		wc := clients[0]
 
 		ctx, cancel := context.WithCancel(context.Background())
-		err = wc.Import(ctx, file, reprocess, prune, integrity)
+		err = wc.Import(ctx, file, procOpt)
 		if err != nil {
 			log.Printf("[ERROR][%s/%s] Importing: %v",
 				wc.DataSourceID(), wc.UserID(), err)
@@ -218,44 +241,42 @@ func main() {
 }
 
 // parseTimeframe parses tfStartInput and/or tfEndInput and returns
-// the resulting start and end times (may be nil), or an error.
-func parseTimeframe() (start, end *time.Time, err error) {
-	var tfStart, tfEnd time.Time
+// the resulting timeframe or an error.
+func parseTimeframe() (timeliner.Timeframe, error) {
+	var tf timeliner.Timeframe
+	var timeStart, timeEnd time.Time
+
 	if tfStartInput != "" {
-		var tfStartRel time.Duration
-		tfStartRel, err = time.ParseDuration(tfStartInput)
+		tfStartRel, err := time.ParseDuration(tfStartInput)
 		if err == nil {
-			tfStart = time.Now().Add(tfStartRel)
+			timeStart = time.Now().Add(tfStartRel)
 		} else {
-			tfStart, err = time.Parse(dateFormat, tfStartInput)
+			timeStart, err = time.Parse(dateFormat, tfStartInput)
 			if err != nil {
-				err = fmt.Errorf("bad timeframe start value '%s': %v", tfStartInput, err)
-				return
+				return tf, fmt.Errorf("bad timeframe start value '%s': %v", tfStartInput, err)
 			}
 		}
-		start = &tfStart
+		tf.Since = &timeStart
 	}
 
 	if tfEndInput != "" {
-		var tfEndRel time.Duration
-		tfEndRel, err = time.ParseDuration(tfEndInput)
+		tfEndRel, err := time.ParseDuration(tfEndInput)
 		if err == nil {
-			tfEnd = time.Now().Add(tfEndRel)
+			timeEnd = time.Now().Add(tfEndRel)
 		} else {
-			tfEnd, err = time.Parse(dateFormat, tfEndInput)
+			timeEnd, err = time.Parse(dateFormat, tfEndInput)
 			if err != nil {
-				err = fmt.Errorf("bad timeframe end value '%s': %v", tfEndInput, err)
-				return
+				return tf, fmt.Errorf("bad timeframe end value '%s': %v", tfEndInput, err)
 			}
 		}
-		end = &tfEnd
+		tf.Until = &timeEnd
 	}
 
-	if start != nil && end != nil && end.Before(*start) {
-		err = fmt.Errorf("end time must be after start time (start=%s end=%s)", start, end)
+	if tf.Since != nil && tf.Until != nil && tf.Until.Before(*tf.Since) {
+		return tf, fmt.Errorf("end time must be after start time (start=%s end=%s)", tf.Since, tf.Until)
 	}
 
-	return
+	return tf, nil
 }
 
 func loadConfig() error {
@@ -353,6 +374,8 @@ var (
 	integrity bool
 	prune     bool
 	reprocess bool
+	softMerge bool
+	keep      string
 
 	tfStartInput, tfEndInput string
 

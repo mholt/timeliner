@@ -173,6 +173,7 @@ type ItemRow struct {
 	Location
 
 	metaGob []byte // use Metadata.(encode/decode)
+	item    Item
 }
 
 // Location contains location information.
@@ -302,7 +303,7 @@ type Relation struct {
 	Bidirectional bool
 }
 
-// Collection represents a group of items.
+// Collection represents a group of items, like an album.
 type Collection struct {
 	// The ID of the collection as given
 	// by the service; for example, the

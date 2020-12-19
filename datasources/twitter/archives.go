@@ -9,7 +9,7 @@ import (
 	"github.com/mholt/timeliner"
 )
 
-func (c *Client) getFromArchiveFile(itemChan chan<- *timeliner.ItemGraph, opt timeliner.Options) error {
+func (c *Client) getFromArchiveFile(itemChan chan<- *timeliner.ItemGraph, opt timeliner.ListingOptions) error {
 	// load the user's account ID
 	var err error
 	c.ownerAccount, err = c.getOwnerAccountFromArchive(opt.Filename)

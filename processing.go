@@ -17,7 +17,7 @@ import (
 // obtained from ac. It returns a WaitGroup which blocks until
 // all workers have finished, and a channel into which the
 // service should pipe its items.
-func (wc *WrappedClient) beginProcessing(cc concurrentCuckoo, reprocess, integrity bool) (*sync.WaitGroup, chan<- *ItemGraph) {
+func (wc *WrappedClient) beginProcessing(cc concurrentCuckoo, po ProcessingOptions) (*sync.WaitGroup, chan<- *ItemGraph) {
 	wg := new(sync.WaitGroup)
 	ch := make(chan *ItemGraph)
 
@@ -31,12 +31,11 @@ func (wc *WrappedClient) beginProcessing(cc concurrentCuckoo, reprocess, integri
 					continue
 				}
 				_, err := wc.processItemGraph(ig, &recursiveState{
-					timestamp:      time.Now(),
-					reprocess:      reprocess,
-					integrityCheck: integrity,
-					seen:           make(map[*ItemGraph]int64),
-					idmap:          make(map[string]int64),
-					cuckoo:         cc,
+					timestamp: time.Now(),
+					procOpt:   po,
+					seen:      make(map[*ItemGraph]int64),
+					idmap:     make(map[string]int64),
+					cuckoo:    cc,
 				})
 				if err != nil {
 					log.Printf("[ERROR][%s/%s] Processing item graph: %v",
@@ -50,11 +49,10 @@ func (wc *WrappedClient) beginProcessing(cc concurrentCuckoo, reprocess, integri
 }
 
 type recursiveState struct {
-	timestamp      time.Time
-	reprocess      bool
-	integrityCheck bool
-	seen           map[*ItemGraph]int64 // value is the item's row ID
-	idmap          map[string]int64     // map an item's service ID to the row ID -- TODO: I don't love this... any better way?
+	timestamp time.Time
+	procOpt   ProcessingOptions
+	seen      map[*ItemGraph]int64 // value is the item's row ID
+	idmap     map[string]int64     // map an item's service ID to the row ID -- TODO: I don't love this... any better way?
 
 	// the cuckoo filter pointer lives for
 	// the duration of the entire operation;
@@ -75,7 +73,7 @@ func (wc *WrappedClient) processItemGraph(ig *ItemGraph, state *recursiveState) 
 	var igRowID int64
 
 	if ig.Node == nil {
-		// mark this node as visited
+		// mark this node as visited (no ID)
 		state.seen[ig] = 0
 	} else {
 		// process root node
@@ -131,7 +129,7 @@ func (wc *WrappedClient) processItemGraph(ig *ItemGraph, state *recursiveState) 
 			coll.Items[i].itemRowID = state.idmap[it.Item.ID()]
 		}
 
-		err := wc.processCollection(coll, state.timestamp)
+		err := wc.processCollection(coll, state.timestamp, state.procOpt)
 		if err != nil {
 			return 0, fmt.Errorf("processing collection: %v (original_id=%s)", err, coll.OriginalID)
 		}
@@ -200,7 +198,7 @@ func (wc *WrappedClient) processSingleItemGraphNode(it Item, state *recursiveSta
 		state.cuckoo.Unlock()
 	}
 
-	itemRowID, err := wc.storeItemFromService(it, state.timestamp, state.reprocess, state.integrityCheck)
+	itemRowID, err := wc.storeItemFromService(it, state.timestamp, state.procOpt)
 	if err != nil {
 		return itemRowID, err
 	}
@@ -220,13 +218,30 @@ func (wc *WrappedClient) processSingleItemGraphNode(it Item, state *recursiveSta
 	return itemRowID, nil
 }
 
-func (wc *WrappedClient) storeItemFromService(it Item, timestamp time.Time, reprocess, integrity bool) (int64, error) {
+func (wc *WrappedClient) storeItemFromService(it Item, timestamp time.Time, procOpt ProcessingOptions) (int64, error) {
 	if it == nil {
 		return 0, nil
 	}
 
-	// process this item only one at a time
 	itemOriginalID := it.ID()
+
+	// if enabled, prepare a "soft merge" - this operation finds an existing row that
+	// matches properties of an item that are LIKELY unique if they are, in fact, the
+	// same item, without relying on the item's original_id alone (which might not be
+	// consistent depending on the method used, for example importing from Google
+	// Takeout for Google Photos has different IDs than using their API) -- and sets
+	// the original_id field of the candidate row to that of the incoming row; this
+	// will trigger a conflict in the query below that will cause a graceful update
+	var doingSoftMerge bool
+	if procOpt.Merge.SoftMerge {
+		var err error
+		itemOriginalID, doingSoftMerge, err = wc.softMerge(it, procOpt)
+		if err != nil {
+			return 0, fmt.Errorf("soft merge: %v", err)
+		}
+	}
+
+	// process this item only one at a time
 	itemLockID := fmt.Sprintf("%s_%d_%s", wc.ds.ID, wc.acc.ID, itemOriginalID)
 	itemLocks.Lock(itemLockID)
 	defer itemLocks.Unlock(itemLockID)
@@ -247,6 +262,12 @@ func (wc *WrappedClient) storeItemFromService(it Item, timestamp time.Time, repr
 		defer rc.Close()
 	}
 
+	// as we go, we'll decide whether we are to process and store this item's data
+	// file or not, as it depends on a few factors; our default behavior is that
+	// data in a new item is preferred and thus assimilated into the timeline,
+	// so we begin by deciding simply based on whether this item has a file reader
+	processDataFile := rc != nil
+
 	// if the item is already in our DB, load it
 	var ir ItemRow
 	if itemOriginalID != "" {
@@ -257,16 +278,22 @@ func (wc *WrappedClient) storeItemFromService(it Item, timestamp time.Time, repr
 		if ir.ID > 0 {
 			// already have it
 
-			if !wc.shouldProcessExistingItem(it, ir, reprocess, integrity) {
+			if !wc.shouldProcessExistingItem(it, ir, doingSoftMerge, procOpt) {
 				return ir.ID, nil
 			}
 
-			// at this point, we will be replacing the existing
-			// file, so move it temporarily as a safe measure,
-			// and also because our filename-generator will not
-			// allow a file to be overwritten, but we want to
-			// replace the existing file in this case
-			if ir.DataFile != nil && rc != nil {
+			// update our decision to process the data file; we know we already have this item
+			// so a merge is taking place; so now this depends on the merge configuration and
+			// whether the existing item has a data file
+			processDataFile = processDataFile && (ir.DataFile == nil || !procOpt.Merge.PreferExistingDataFile)
+
+			// if there is an existing data file, and this new item has a data file,
+			// and the merge configuration does NOT prefer existing file over new one,
+			// then we know we will be replacing the existing file, so move it out of
+			// the way temporarily as a safe measure, and also because our
+			// filename-generator will not allow a file to be overwritten, but we want
+			// to replace the existing file in this case...
+			if processDataFile {
 				origFile := wc.tl.fullpath(*ir.DataFile)
 				bakFile := wc.tl.fullpath(*ir.DataFile + ".bak")
 				err = os.Rename(origFile, bakFile)
@@ -297,7 +324,7 @@ func (wc *WrappedClient) storeItemFromService(it Item, timestamp time.Time, repr
 
 	var dataFileName *string
 	var datafile *os.File
-	if rc != nil {
+	if processDataFile {
 		datafile, dataFileName, err = wc.tl.openUniqueCanonicalItemDataFile(it, wc.ds.ID)
 		if err != nil {
 			return 0, fmt.Errorf("opening output data file: %v", err)
@@ -306,21 +333,44 @@ func (wc *WrappedClient) storeItemFromService(it Item, timestamp time.Time, repr
 	}
 
 	// prepare the item's DB row values
-	err = wc.fillItemRow(&ir, it, timestamp, dataFileName)
+	err = wc.fillItemRow(&ir, it, itemOriginalID, timestamp, dataFileName)
 	if err != nil {
 		return 0, fmt.Errorf("assembling item for storage: %v", err)
 	}
 
-	// TODO: Insert modified time too, if edited locally?
-	// TODO: On conflict, maybe we just want to ignore -- make this configurable...
+	// honor relevant merge options
+	timestampCoal, dataTextCoal := "COALESCE(?, timestamp)", "COALESCE(?, data_text)"
+	if procOpt.Merge.PreferExistingTimestamp {
+		timestampCoal = "COALESCE(timestamp, ?)"
+	}
+	if procOpt.Merge.PreferExistingDataText {
+		dataTextCoal = "COALESCE(data_text, ?)"
+	}
+
+	// insert into the DB if it does not exist, and if it does, we update the existing
+	// row such that we usually prefer the new value, but if the new value is nil, keep
+	// the existing value (this is mostly an additive "merge" of the stored row with
+	// the incoming row, except that if both values are not null, we overwrite existing
+	// value with the new one); 'coalesce(?, field)' means "store new value if not null,
+	// otherwise keep existing value"; i.e. the incoming data is authoritative unless it
+	// is missing, in which case we keep what we have
 	_, err = wc.tl.db.Exec(`INSERT INTO items
 			(account_id, original_id, person_id, timestamp, stored,
 				class, mime_type, data_text, data_file, data_hash, metadata,
 				latitude, longitude)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT (account_id, original_id) DO UPDATE
-			SET person_id=?, timestamp=?, stored=?, class=?, mime_type=?, data_text=?,
-				data_file=?, data_hash=?, metadata=?, latitude=?, longitude=?`,
+			SET person_id=COALESCE(?, person_id),
+				timestamp=`+timestampCoal+`,
+				stored=COALESCE(?, stored),
+				class=COALESCE(?, timestamp),
+				mime_type=COALESCE(?, mime_type),
+				data_text=`+dataTextCoal+`,
+				data_file=COALESCE(?, data_file),
+				data_hash=COALESCE(?, data_hash),
+				metadata=COALESCE(?, metadata),
+				latitude=COALESCE(?, latitude),
+				longitude=COALESCE(?, longitude)`,
 		ir.AccountID, ir.OriginalID, ir.PersonID, ir.Timestamp.Unix(), ir.Stored.Unix(),
 		ir.Class, ir.MIMEType, ir.DataText, ir.DataFile, ir.DataHash, ir.metaGob,
 		ir.Latitude, ir.Longitude,
@@ -342,7 +392,7 @@ func (wc *WrappedClient) storeItemFromService(it Item, timestamp time.Time, repr
 
 	// if there is a data file, download it and compute its checksum;
 	// then update the item's row in the DB with its name and checksum
-	if rc != nil && dataFileName != nil {
+	if processDataFile {
 		h := sha256.New()
 		err := wc.tl.downloadItemFile(rc, datafile, h)
 		if err != nil {
@@ -361,7 +411,7 @@ func (wc *WrappedClient) storeItemFromService(it Item, timestamp time.Time, repr
 		}
 
 		// save the file's name and hash to confirm it was downloaded successfully
-		_, err = wc.tl.db.Exec(`UPDATE items SET data_hash=? WHERE id=?`, // TODO: LIMIT 1...
+		_, err = wc.tl.db.Exec(`UPDATE items SET data_hash=? WHERE id=?`, // TODO: LIMIT 1... (see https://github.com/mattn/go-sqlite3/pull/802)
 			b64hash, itemRowID)
 		if err != nil {
 			log.Printf("[ERROR][%s/%s] Updating item's data file hash in DB: %v; cleaning up data file: %s (item_id=%d)",
@@ -373,9 +423,9 @@ func (wc *WrappedClient) storeItemFromService(it Item, timestamp time.Time, repr
 	return itemRowID, nil
 }
 
-func (wc *WrappedClient) shouldProcessExistingItem(it Item, dbItem ItemRow, reprocess, integrity bool) bool {
+func (wc *WrappedClient) shouldProcessExistingItem(it Item, dbItem ItemRow, doingSoftMerge bool, procOpt ProcessingOptions) bool {
 	// if integrity check is enabled and checksum mismatches, always reprocess
-	if integrity && dbItem.DataFile != nil && dbItem.DataHash != nil {
+	if procOpt.Integrity && dbItem.DataFile != nil && dbItem.DataHash != nil {
 		datafile, err := os.Open(wc.tl.fullpath(*dbItem.DataFile))
 		if err != nil {
 			log.Printf("[ERROR][%s/%s] Integrity check: opening existing data file: %v; reprocessing (item_id=%d)",
@@ -419,11 +469,14 @@ func (wc *WrappedClient) shouldProcessExistingItem(it Item, dbItem ItemRow, repr
 		return true
 	}
 
-	// finally, if the user wants to reprocess anyway, then do so
-	return reprocess
+	// finally, if the user wants to reprocess anyway, then do so;
+	// or if we are doing a soft merge (merging one identical item
+	// into an existing one), always reprocess so that the merge
+	// will actually take place
+	return procOpt.Reprocess || doingSoftMerge
 }
 
-func (wc *WrappedClient) fillItemRow(ir *ItemRow, it Item, timestamp time.Time, canonicalDataFileName *string) error {
+func (wc *WrappedClient) fillItemRow(ir *ItemRow, it Item, itemOriginalID string, timestamp time.Time, canonicalDataFileName *string) error {
 	// unpack the item's information into values to use in the row
 
 	ownerID, ownerName := it.Owner()
@@ -469,7 +522,7 @@ func (wc *WrappedClient) fillItemRow(ir *ItemRow, it Item, timestamp time.Time, 
 	}
 
 	ir.AccountID = wc.acc.ID
-	ir.OriginalID = it.ID()
+	ir.OriginalID = itemOriginalID
 	ir.PersonID = person.ID
 	ir.Timestamp = it.Timestamp()
 	ir.Stored = timestamp
@@ -481,10 +534,91 @@ func (wc *WrappedClient) fillItemRow(ir *ItemRow, it Item, timestamp time.Time, 
 	ir.metaGob = metaGob
 	ir.Location = *loc
 
+	// not used in the DB, but if we need to get the item's
+	// original file name, for example, rather than the
+	// unique filename to be used on disk...
+	ir.item = it
+
 	return nil
 }
 
-func (wc *WrappedClient) processCollection(coll Collection, timestamp time.Time) error {
+// softMerge finds a candidate row that already exists in the DB that is likely to be identical
+// to it, even if the original_id does not match, and updates the original_id field to that of it
+// if there is exactly 1 matching row and if procOpt permits. This will allow the existing row
+// to be merged with the incoming row even though their original_ids do not match. This is a
+// best-guess effort based on timestamp and data_text/data_file/data_hash (the hash must be one
+// that is offered by the data source, as the post-download hashing is not known until after
+// downloading the file, obviously; since most data sources don't offer one, in practice soft
+// merges happen over timestamp plus filename or text data only). It returns the ID that must
+// be used when processing the item, and whether a soft merge is being performed or not.
+func (wc *WrappedClient) softMerge(it Item, procOpt ProcessingOptions) (string, bool, error) {
+	var filenameLikePattern *string
+	if dataFileName := it.DataFileName(); dataFileName != nil {
+		temp := "%/" + *dataFileName
+		filenameLikePattern = &temp
+	}
+
+	newOriginalID := it.ID()
+	dataText, err := it.DataText()
+	if err != nil {
+		return newOriginalID, false, fmt.Errorf("getting item text: %v", err)
+	}
+	dataHash := it.DataFileHash()
+	if err != nil {
+		return newOriginalID, false, fmt.Errorf("getting item data hash: %v", err)
+	}
+
+	// make sure there is exactly 1 matching row; any more is ambiguous and too risky to merge
+	// (also make sure the existing original_id does not match the new one; that would be a regular merge)
+	var numMatches int
+	var rowID *int
+	var oldOriginalID *string
+	err = wc.tl.db.QueryRow(`SELECT COUNT(1), id, original_id
+			FROM items
+			WHERE account_id=? AND timestamp=? AND (data_text=? OR data_file LIKE ? OR data_hash=?) AND original_id != ?
+			LIMIT 1`,
+		wc.acc.ID, it.Timestamp().Unix(), dataText, filenameLikePattern, dataHash, newOriginalID).Scan(&numMatches, &rowID, &oldOriginalID)
+	if err == sql.ErrNoRows || numMatches == 0 {
+		return newOriginalID, false, nil
+	}
+	if err != nil {
+		return newOriginalID, false, fmt.Errorf("querying for candidate row: %v", err)
+	}
+	if numMatches > 1 {
+		return newOriginalID, false, fmt.Errorf("ambiguous match with %d existing items (account_id=%d timestamp=%d data_text=%p data_file=%p) - unable to merge, skipping item with ID: %s",
+			numMatches, wc.acc.ID, it.Timestamp().Unix(), dataText, filenameLikePattern, newOriginalID)
+	}
+
+	// now we know there is exactly one match, so we are to perform a soft merge;
+	// we must honor the configured merge preferences especially regarding ID
+
+	// if configured to keep existing ID, make sure the caller knows to use the
+	// existing/old ID rather than the ID associated with the current/new item
+	if procOpt.Merge.PreferExistingID {
+		log.Printf("[INFO] Soft merging new item with id=%s into row %d with item id=%s (preserved item ID)", newOriginalID, rowID, *oldOriginalID)
+		return *oldOriginalID, true, nil
+	}
+
+	// now we know there is exactly 1 match and we are to use the new item's ID; set up merge by
+	// updating the item's original_id to the incoming item's ID value; this will cause the
+	// imminent INSERT query to find a conflict and perform a graceful merge with the incoming data
+	_, err = wc.tl.db.Exec(`UPDATE items SET original_id=? WHERE id=?`, newOriginalID, rowID) // TODO: limit 1 (see https://github.com/mattn/go-sqlite3/pull/802)
+	if err != nil && err != sql.ErrNoRows {
+		return newOriginalID, false, fmt.Errorf("updating candidate row's original_id in DB: %v (id=%d old_original_id=%s new_original_id=%s)",
+			err, rowID, *oldOriginalID, newOriginalID)
+	}
+
+	log.Printf("[INFO] Soft merging new item with id=%s into row %d with item id=%s (changed item ID)", newOriginalID, rowID, *oldOriginalID)
+
+	return newOriginalID, true, nil
+}
+
+func (wc *WrappedClient) processCollection(coll Collection, timestamp time.Time, procOpt ProcessingOptions) error {
+	// never reprocess or check integrity when storing items in collections since the main processing handles that
+	procOpt.Reprocess = false
+	procOpt.Integrity = false
+
+	// TODO: support soft merge (based on name, I guess)
 	_, err := wc.tl.db.Exec(`INSERT INTO collections
 		(account_id, original_id, name) VALUES (?, ?, ?)
 		ON CONFLICT (account_id, original_id)
@@ -508,7 +642,7 @@ func (wc *WrappedClient) processCollection(coll Collection, timestamp time.Time)
 	// (TODO: could batch this for faster inserts)
 	for _, cit := range coll.Items {
 		if cit.itemRowID == 0 {
-			itID, err := wc.storeItemFromService(cit.Item, timestamp, false, false) // never reprocess or check integrity here
+			itID, err := wc.storeItemFromService(cit.Item, timestamp, procOpt)
 			if err != nil {
 				return fmt.Errorf("adding item from collection to storage: %v", err)
 			}

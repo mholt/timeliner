@@ -75,7 +75,6 @@ func (t *Timeline) openUniqueCanonicalItemDataFile(it Item, dataSourceID string)
 			tryPath = strings.TrimSuffix(tryPath, lastAppend)
 			lastAppend = fmt.Sprintf("_%d%s", i+1, ext) // start at 1, but actually 2 because existing file is "1"
 			tryPath += lastAppend
-
 			continue
 		}
 		if err != nil {

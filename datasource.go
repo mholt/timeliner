@@ -107,7 +107,6 @@ type DataSource struct {
 // authFunc gets the authentication function for this
 // service. If s.Authenticate is set, it returns that;
 // if s.OAuth2 is set, it uses a standard OAuth2 func.
-// TODO: update godoc
 func (ds DataSource) authFunc() AuthenticateFn {
 	if ds.Authenticate != nil {
 		return ds.Authenticate
@@ -191,7 +190,7 @@ type Client interface {
 	// timeliner.Checkpoint to set a checkpoint. Checkpoints are not
 	// required, but if the implementation sets checkpoints, it
 	// should be able to resume from one, too.
-	ListItems(ctx context.Context, itemChan chan<- *ItemGraph, opt Options) error
+	ListItems(ctx context.Context, itemChan chan<- *ItemGraph, opt ListingOptions) error
 }
 
 // Timeframe represents a start and end time and/or

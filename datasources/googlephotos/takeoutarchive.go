@@ -17,7 +17,7 @@ import (
 	"github.com/mholt/timeliner"
 )
 
-func (c *Client) listFromTakeoutArchive(ctx context.Context, itemChan chan<- *timeliner.ItemGraph, opt timeliner.Options) error {
+func (c *Client) listFromTakeoutArchive(ctx context.Context, itemChan chan<- *timeliner.ItemGraph, opt timeliner.ListingOptions) error {
 	err := archiver.Walk(opt.Filename, func(f archiver.File) error {
 		pathInArchive := getPathInArchive(f) // TODO: maybe this should be a function in the archiver lib
 
@@ -69,10 +69,15 @@ func (c *Client) listFromTakeoutArchive(ctx context.Context, itemChan chan<- *ti
 			itemMeta.pathInArchive = strings.TrimSuffix(pathInArchive, ".json")
 			itemMeta.archiveFilename = opt.Filename
 
-			collection.Items = append(collection.Items, timeliner.CollectionItem{
-				Item:     itemMeta,
-				Position: len(collection.Items),
-			})
+			withinTimeframe := (opt.Timeframe.Since == nil || itemMeta.parsedPhotoTakenTime.After(*opt.Timeframe.Since)) &&
+				(opt.Timeframe.Until == nil || itemMeta.parsedPhotoTakenTime.Before(*opt.Timeframe.Until))
+
+			if withinTimeframe {
+				collection.Items = append(collection.Items, timeliner.CollectionItem{
+					Item:     itemMeta,
+					Position: len(collection.Items),
+				})
+			}
 
 			return nil
 		})
@@ -80,9 +85,11 @@ func (c *Client) listFromTakeoutArchive(ctx context.Context, itemChan chan<- *ti
 			return err
 		}
 
-		ig := timeliner.NewItemGraph(nil)
-		ig.Collections = append(ig.Collections, collection)
-		itemChan <- ig
+		if len(collection.Items) > 0 {
+			ig := timeliner.NewItemGraph(nil)
+			ig.Collections = append(ig.Collections, collection)
+			itemChan <- ig
+		}
 
 		return nil
 	})
@@ -99,7 +106,7 @@ func getPathInArchive(f archiver.File) string {
 	switch hdr := f.Header.(type) {
 	case zip.FileHeader:
 		return hdr.Name
-	case tar.Header:
+	case *tar.Header:
 		return hdr.Name
 	}
 	return ""
@@ -187,8 +194,10 @@ func (m mediaArchiveMetadata) timestamp() (time.Time, error) {
 	return time.Unix(parsed, 0), nil
 }
 
+// ID does NOT return the same ID as from the API. Takeout archives do NOT
+// have an ID associated with each item, so we do our best by making up
+// an ID using the timestamp and the filename.
 func (m mediaArchiveMetadata) ID() string {
-	// TODO: THIS IS NOT THE SAME AS THE ID FROM THE API
 	return m.PhotoTakenTime.Timestamp + "_" + m.Title
 }
 

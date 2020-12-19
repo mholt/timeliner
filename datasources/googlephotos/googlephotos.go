@@ -71,7 +71,7 @@ type Client struct {
 
 // ListItems lists items from the data source.
 // opt.Timeframe precision is day-level at best.
-func (c *Client) ListItems(ctx context.Context, itemChan chan<- *timeliner.ItemGraph, opt timeliner.Options) error {
+func (c *Client) ListItems(ctx context.Context, itemChan chan<- *timeliner.ItemGraph, opt timeliner.ListingOptions) error {
 	defer close(itemChan)
 
 	if opt.Filename != "" {
