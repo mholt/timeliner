@@ -52,6 +52,7 @@ Timeliner data sources are strictly _read-only_ meaning that no write permission
 - Memory-efficient for high-volume data processing
 - Built-in rate limiting for API clients
 - Built-in OAuth2 facilities for API clients
+- Configurable data merging behavior for similar/identical items
 - Ability to get and organize data from... almost anything, really, including export files
 
 Some features are dependent upon the actual implementation of each data source. For example, differential reprocessing requires that the data source provide some sort of checksum or "ETag" for the item, but if that is not available, there's no way to know if an item has changed remotely without downloading the whole thing and reprocessing it.
@@ -169,7 +170,9 @@ This subcommand supports the `-end` flag, but not the `-start` flag (since the s
 
 ### Reprocessing items
 
-By default, Timeliner will not re-process items that are already in your timeline. However, Timeliner will reprocess items already in your timeline if:
+By default, Timeliner will not re-process items that are already in your timeline. However, Timeliner will reprocess items already in your timeline if one of the following criteria are met:
+
+- You enable soft merge (see below) and the new item has the same timetamp and text data, filename, or provider-given file hash as an existing item in the timeline (regardless of ID). Under these constraints, two similar items (differing IDs) are considered to be identical when soft merge is enabled. (`-softmerge`)
 
 - You run with the `-integrity` flag which enables integrity checks, and an item's data file fails the integrity check. In that case, the item will be reprocessed to restore its correct data.
 
@@ -177,7 +180,20 @@ By default, Timeliner will not re-process items that are already in your timelin
 
 Since it is often impossible to know without actually downloading the whole item whether it has changed, you can run Timeliner with the `-reprocess` flag to do a "full reprocess" which indiscriminately reprocesses every item, just in case it changed. In other words, a reprocess will update your local copy with the source's latest.
 
+Reprocessing an item is also called "merging" because it esentially combines two representations of the same item into a single representation in storage.
+
 TODO: Maybe we should change the flag name to `-update`?
+
+
+### Merge options
+
+When an item is re-processed ("merged"), by default the values in the new item will fill in only missing values on the old item, and an old and new item qualify for merging only if their IDs are the same. However, you can customize the merge behavior:
+
+- `-softmerge` enables "soft merging" where an item may be merged with an existing one that shares the exact same timestamp and text or filename, even if their IDs differ.
+
+- The `-keep` flag configures which fields to prefer from the old item, separated by commas. You can "keep" the `id` (item ID), `ts` (timestamp), `text` (text data), or `file` (data file). For example, to keep the old/existing item's ID, use `-keep=id`; to keep both the ID and the data file, use `-keep=id,file`.
+
+This is useful for some providers like Google Photos, which allow both API use and importing an archive from Google Takeout, but where the IDs differ and they provide different information: the API provides a good ID, timestamp, and metadata, but lacks location information and returns compressed files. Takeout doesn't provide an ID for each photo and lacks extra metadata, but it returns the file at original upload quality and includes location data. With merge options, you can safely use both without duplicating your entire library. When using the API, I like to specify `-softmerge -keep=file`, and when using Takeout, I specify `-softmerge -keep=id`, because I prefer the API's ID, and Takeout's file.
 
 
 ### Pruning your timeline

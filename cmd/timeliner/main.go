@@ -124,6 +124,7 @@ func main() {
 	keepFields := strings.Split(keep, ",")
 	for _, val := range keepFields {
 		switch val {
+		case "":
 		case "id":
 			mergeOptions.PreferExistingID = true
 		case "ts":
