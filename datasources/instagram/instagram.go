@@ -134,4 +134,4 @@ func (c *Client) getMediaIndex(filename string) (instaMediaIndex, error) {
 	return idx, nil
 }
 
-const takenAtFormat = "2006-01-02T15:04:05"
+const takenAtFormat = "2006-01-02T15:04:05+07:00"
