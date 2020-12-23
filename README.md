@@ -1,17 +1,13 @@
 Timeliner [![timeliner godoc](https://pkg.go.dev/badge/github.com/mholt/timeliner)](https://pkg.go.dev/github.com/mholt/timeliner)
 =========
 
-**Sponsored by Relica - Cross-platform local and cloud file backup:**
-
-<a href="https://relicabackup.com"><img src="https://caddyserver.com/resources/images/sponsors/relica.png" width="220" alt="Relica - Cross-platform file backup to the cloud, local disks, or other computers"></a>
-
 Timeliner is a personal data aggregation utility. It collects all your digital things from pretty much anywhere and stores them on your own computer, indexes them, and projects them onto a single, unified timeline.
 
 The intended purpose of this tool is to help preserve personal and family history.
 
 Things that are stored by Timeliner are easily accessible in a SQLite database or, for media items like photos and videos, are simply plopped onto your disk as regular files, organized in folders by date and data source.
 
-**WIP Notice:** This project works as documented for the most part, but is still very young. Please consider this experimental until stable releases. The documentation needs a lot of work too, I know, so feel free to contribute.
+**WIP Notice:** This project works as documented for the most part, but is still very young. Please consider this experimental until stable releases. The documentation needs a lot of work too, I know... so feel free to contribute!
 
 
 ## About
@@ -24,13 +20,13 @@ In general, Timeliner obtains _items_ from _data sources_ and stores them in a _
 
 Technically speaking:
 
-- An **Item** implements [this interface](https://godoc.org/github.com/mholt/timeliner#Item) and provides access to its content and metadata.
-- A **DataSource** is defined by [this struct](https://godoc.org/github.com/mholt/timeliner#DataSource) and configures a Client to access it. Clients are the types that do the actual work of listing of items.
+- An **Item** implements [this interface](https://pkg.go.dev/github.com/mholt/timeliner#Item) and provides access to its content and metadata.
+- A **DataSource** is defined by [this struct](https://pkg.go.dev/github.com/mholt/timeliner#DataSource) which configures a [Client](https://pkg.go.dev/github.com/mholt/timeliner#Client) to access it (by its `NewClient` field). Clients are the types that do the actual work of listing of items.
 - A **Timeline** is opened when being used. It consists of an underlying SQLite database and an adjacent data folder where larger/media items are stored as files. Timelines are essentially the folder that contains them. They are portable, so you can move them around and won't break things. However, don't change the contents of the folder directly! Don't add, remove, or modify items in the folder; you will break something. This does not mean timelines are read-only: they just have to be modified through the program in order to stay consistent.
 
 Timeliner can pull data in from local or remote sources. It provides integrated support for OAuth2 and rate limiting where that is needed. It can also import data from local files. For example, some online services let you download all your data as an archive file. Timeliner can read those and index your data.
 
-Timeliner data sources are strictly _read-only_ meaning that no write permissions are needed and Timeliner will never change or delete the source.
+Timeliner data sources are strictly _read-only_ meaning that no write permissions are needed and Timeliner will never change or delete from the source.
 
 ## Features
 
@@ -41,7 +37,7 @@ Timeliner data sources are strictly _read-only_ meaning that no write permission
 	- [Twitter](https://github.com/mholt/timeliner/wiki/Data-Source:-Twitter)
 	- [Instagram](https://github.com/mholt/timeliner/wiki/Data-Source:-Instagram)
 	- [SMS Backup & Restore](https://github.com/mholt/timeliner/wiki/Data-Source:-SMS-Backup-&-Restore)
-	- **[Learn how to add more](https://github.com/mholt/timeliner/wiki/Writing-a-Data-Source)** - we'd love your contribution!
+	- **[Learn how to add more](https://github.com/mholt/timeliner/wiki/Writing-a-Data-Source)** - please contribute!
 - Checkpointing (resume interrupted downloads)
 - Pruning
 - Integrity checks
@@ -62,9 +58,55 @@ Some features are dependent upon the actual implementation of each data source. 
 
 **Minimum Go version required:** Go 1.13
 
+Clone this repository, then from the project folder, run:
+
 ```
-$ go get github.com/mholt/timeliner/cmd/timeliner
+$ cd cmd/timeliner
+$ go build
 ```
+
+Then move the resulting executable into your PATH.
+
+
+
+## Command line interface
+
+This is a quick reference only. Be sure to read the tutorial below to learn how to use the program!
+
+```
+$ timeliner [<flags...>] <command> <args...>
+```
+
+Use `timeliner -h` to see available flags.
+
+### Commands
+
+- **`add-account`** adds a new account to the timeline and, if relevant, authenticates with the data source so that items can be obtained from an API. This only has to be done once per account per data source:
+	```
+	$ timeliner add-account <data_source>/<username>...
+	```
+	If the data source requires authentication (for example with OAuth), be sure the config file is properly created first.
+- **`reauth`** re-authenticates with a data source. This is only necessary on some data sources that expire auth leases after some time:
+	```
+	$ timeliner reauth <data_source>/<username>...
+	```
+- **`import`** adds items from a local file:
+	```
+	$ timeliner import <filename> <data_source>/<username>
+	```
+- **`get-all`** adds items from the service's API.
+	```
+	$ timeliner get-all <data_source>/<username>...
+	```
+- **`get-latest`** adds only the latest items from the service's API (since the last checkpoint):
+	```
+	$ timeliner get-latest <data_source>/<username>...
+	```
+
+Flags can be used to constrain or customize the behavior of commands (`timeliner -h` to list flags).
+
+See the [wiki page for your data sources](https://github.com/mholt/timeliner/wiki) to know how to use the various data sources.
+
 
 ## Tutorial
 
@@ -74,11 +116,11 @@ These are the basic steps for getting set up:
 
 1. Create a `timeliner.toml` config file (if any data sources require authentication)
 2. Add your data source accounts
-3. Begin filling your timeline!
+3. Fill your timeline
 
 All items are associated with an account from whence they come. Even if a data source doesn't have the concept of accounts, Timeliner still has to think there is one.
 
-Accounts are designated in the form `<data source ID>/<user ID>`, for example: `twitter/mholt6`. The data source ID is shown on each data source's [wiki page](https://github.com/mholt/timeliner/wiki/). With some data sources (like the Twitter API), the user ID matters, so where possible, give the actual username or email address you use with that service. For data sources that don't have the concept of accounts or a login, choose a user ID you will recognize such that the data source ID + user ID are unique.
+Accounts are designated in the form `<data source ID>/<user ID>`, for example: `twitter/mholt6`. The data source ID is shown on each data source's [wiki page](https://github.com/mholt/timeliner/wiki/). With some data sources (like the Twitter API), the user ID matters; so where possible, give the actual username or email address you use with that service. For data sources that don't have the concept of accounts or a login, choose a user ID you will recognize such that the data source ID + user ID are unique.
 
 If we want to use accounts that require OAuth2, we need to configure Timeliner with OAuth2 app credentials. You can learn which data sources need OAuth2 and what their configuration looks like by reading their [wiki page](https://github.com/mholt/timeliner/wiki/). By default, Timeliner will try to load `timeliner.toml` from the current directory, but you can use the `-config` flag to change that. Here's a sample `timeliner.toml` file for authenticating with Google:
 
@@ -90,7 +132,7 @@ auth_url = "https://accounts.google.com/o/oauth2/auth"
 token_url = "https://accounts.google.com/o/oauth2/token"
 ```
 
-With that, let's create an account to store our Google Photos:
+With that file in place, let's create an account to store our Google Photos:
 
 ```
 $ timeliner add-account google_photos/you@gmail.com
@@ -100,21 +142,21 @@ This will open your browser window to authenticate with OAuth2.
 
 You will notice that a folder called `timeliner_repo` was created in the current directory. This is your timeline. You can move it around if you want, and then use the `-repo` flag to work with that timeline.
 
-Now let's get all our stuff from Google Photos. And I mean, _all_ of it. It's ours, after all, not Google's:
+Now let's get all our stuff from Google Photos. And I mean, _all_ of it. It's ours, after all:
 
 ```
 $ timeliner get-all google_photos/you@gmail.com
 ```
 
-(You can list any number of accounts on a single command; except for `import` commands.)
+(You can list multiple accounts on a single command, except `import` commands.)
 
 This process can take weeks if you have a large library. Even if you have a fast Internet connection, the client is carefully rate-limited to be a good API citizen, so the process will be slow.
 
 If you open your timeline folder in a file browser, you will see it start to fill up with your photos from Google Photos.
 
-Data sources may create checkpoints as they go. If so, `get-all` or `get-latest` will automatically resume the last listing if it was interrupted. In the case of Google Photos, each page of API results is checkpointed. Checkpoints are not intended for long-term pauses. In other words, a resume should happen fairly shortly after being interrupted, and should be resumed using the same command as before. (A checkpoint will be automatically resumed only if the command parameters are identical.)
+Data sources may create checkpoints as they go. If so, `get-all` or `get-latest` will automatically resume the last listing if it was interrupted, but only if the same command is repeated (you can't resume a `get-latest` with `get-all`, for example, or with different timeframe parameters). In the case of Google Photos, each page of API results is checkpointed. Checkpoints are not intended for long-term pauses. In other words, a resume should happen fairly shortly after being interrupted, and should be resumed using the same command as before. (A checkpoint will be automatically resumed only if the command parameters are identical.)
 
-Item processing is idempotent, so as long as items have faithfully-unique IDs across each account, items that already exist in the timeline will be skipped and/or processed much faster.
+Item processing is idempotent, so as long as items have faithfully-unique IDs from their account, items that already exist in the timeline will be skipped and/or processed much faster.
 
 
 ### Constraining within a timeframe
@@ -125,7 +167,7 @@ To get all the items newer than a certain date:
 
 
 ```
-$ timeliner -start 2019/07/1 get-all ...
+$ timeliner -start=2019/07/1 get-all ...
 ```
 
 This will get all items dated July 1, 2019 or newer.
@@ -133,7 +175,7 @@ This will get all items dated July 1, 2019 or newer.
 To get all items older than certain date:
 
 ```
-$ timeliner -end 2020/02/29 get-all ...
+$ timeliner -end=2020/02/29 get-all ...
 ```
 
 This processes all items before February 29, 2020.
@@ -141,16 +183,16 @@ This processes all items before February 29, 2020.
 To create a bounded window, use both:
 
 ```
-$ timeliner -start 2019/07/01 -end 2020/02/29 get-all ...
+$ timeliner -start=2019/07/01 -end=2020/02/29 get-all ...
 ```
 
 Durations can be used for relative dates. To get all items up to 30 days old:
 
 ```
-$ timeliner -end "-720h" get-all ...
+$ timeliner -end=-720h get-all ...
 ```
 
-Notice how the duration value is negative; this is because you want the end date to be 720 hours (30 days) in the past, not in the future. (The quotes are not necessary but I included them in the example to help differentiate the flag value from the flag name, since it happens to start with a hyphen.)
+Notice how the duration value is negative; this is because you want the end date to be 720 hours (30 days) in the past, not in the future.
 
 
 ### Pulling the latest
@@ -163,37 +205,71 @@ $ timeliner get-latest google_photos/you@gmail.com
 
 This will get only the items timestamped newer than the newest item in your timeline (from the last successful run).
 
-If `get-latest` is interrupted after adding some newer items to the timeline, the next run of `get-latest` will not stop at the first new item added last time; it is smart enough to know that it was interrupted and needs to keep getting items all the way until the beginning of the last _successful_ run, as long as the command's parameters are the same. For example, re-running the last command will automatically resume where it left off, but changing the `-end` flag, for example, won't be able to resume.
+If `get-latest` is interrupted after adding some newer items to the timeline, the next run of `get-latest` will not stop at the first new item added last time; it is smart enough to know that it was interrupted and needs to keep getting items all the way until the beginning of the last _successful_ run, as long as the command's parameters are the same. For example, re-running the last command will automatically resume where it left off; but changing the `-end` flag, for example, won't be able to resume.
 
-This subcommand supports the `-end` flag, but not the `-start` flag (since the start is determined from the last downloaded item). One thing I like to do is use `-end -720h` with my Google Photos to only download the latest photos that are at least 30 days old. This gives me a month to delete unwanted/duplicate photos from my cloud library before I store them on my computer permanently.
+This subcommand supports the `-end` flag, but not the `-start` flag (since the start is determined from the last downloaded item). One thing I like to do is use `-end=-720h` with my Google Photos to only download the latest photos that are at least 30 days old. This gives me a month to delete unwanted/duplicate photos from my cloud library before I store them on my computer permanently.
 
 
-### Reprocessing items
+### Duplicate items
 
-By default, Timeliner will not re-process items that are already in your timeline. However, Timeliner will reprocess items already in your timeline if one of the following criteria are met:
+Timeliner often encounters the same items multiple times. By default, it skips items with the same ID as one already stored in the timeline because it is faster and more efficient, but you can also configure it to "reprocess" or "merge" duplicate items. These two concepts are distinct and important.
 
-- You enable soft merge (see below) and the new item has the same timetamp and text data, filename, or provider-given file hash as an existing item in the timeline (regardless of ID). Under these constraints, two similar items (differing IDs) are considered to be identical when soft merge is enabled. (`-softmerge`)
+**Reprocessing** is when Timeliner completely replaces an existing item with a new one.
+
+**Merging** is when Timeliner combines a new item's data with an existing item.
+
+Neither happen by default because they can be less efficient or cause undesired results. In other words: by default, Timeliner will only download and process and item once. This makes its `get-all`, `get-latest`, and `import` commands idempotent.
+
+#### Reprocessing
+
+Reprocessing replaces items with the same ID. This happens if one of the following conditions is met:
 
 - You run with the `-integrity` flag which enables integrity checks, and an item's data file fails the integrity check. In that case, the item will be reprocessed to restore its correct data.
 
-- The item has changed on the data source _and the data source indicates this change somehow_. However, very few (if any?) data sources actually provide a hash or ETag to help us compare whether a resource has changed. (HTTP sure has it nice, huh...)
+- The item has changed on the data source _and the data source indicates this change somehow_. However, very few (if any?) data sources actually provide a hash or ETag to help us compare whether a resource has changed.
 
-Since it is often impossible to know without actually downloading the whole item whether it has changed, you can run Timeliner with the `-reprocess` flag to do a "full reprocess" which indiscriminately reprocesses every item, just in case it changed. In other words, a reprocess will update your local copy with the source's latest.
-
-Reprocessing an item is also called "merging" because it esentially combines two representations of the same item into a single representation in storage.
-
-TODO: Maybe we should change the flag name to `-update`?
+- You run with the `-reprocess` flag. This does a "full reprocess" (or "forced reprocess") which indiscriminately reprocesses every item, just in case it changed. In other words, a forced reprocess will update your local copy with the source's latest for every item. This is often used because a data source might not provide enough information to automatically determine whether an item has changed. If you know you have changed your items on the data source, you could specify this flag to force Timeliner to update everything.
 
 
-### Merge options
+#### Merging
 
-When an item is re-processed ("merged"), by default the values in the new item will fill in only missing values on the old item, and an old and new item qualify for merging only if their IDs are the same. However, you can customize the merge behavior:
+Merging combines two items without completely replacing the old item. Merges are additive: they'll never replace a field with a null value. By default, merges only add data that was missing and will not overwrite existing data (but this is configurable).
 
-- `-softmerge` enables "soft merging" where an item may be merged with an existing one that shares the exact same timestamp and text or filename, even if their IDs differ.
+In theory, any two items can be merged, even if they don't have the same ID. Currently, the only way to trigger a merge is to enable "soft merging" which allows Timeliner to treat two items with different IDs as identical if ALL of these are true:
 
-- The `-keep` flag configures which fields to prefer from the old item, separated by commas. You can "keep" the `id` (item ID), `ts` (timestamp), `text` (text data), or `file` (data file). For example, to keep the old/existing item's ID, use `-keep=id`; to keep both the ID and the data file, use `-keep=id,file`.
+- They have the same account (same data source)
+- They have the same timestamp
+- They have either the same text data OR the same data file name
 
-This is useful for some providers like Google Photos, which allow both API use and importing an archive from Google Takeout, but where the IDs differ and they provide different information: the API provides a good ID, timestamp, and metadata, but lacks location information and returns compressed files. Takeout doesn't provide an ID for each photo and lacks extra metadata, but it returns the file at original upload quality and includes location data. With merge options, you can safely use both without duplicating your entire library. When using the API, I like to specify `-softmerge -keep=file`, and when using Takeout, I specify `-softmerge -keep=id`, because I prefer the API's ID, and Takeout's file.
+Merging can be enabled and customized with the `-merge` flag. This flag accepts a comma-separated list of merge options:
+
+- `soft` (required): Enables soft merging. Currently, this is the only way to enable merging at all.
+- `id`: Prefer new item's ID
+- `text`: Prefer new item's text data
+- `file`: Prefer new item's data file
+- `meta`: Prefer new item's metadata
+
+**Soft merging** simply updates the ID of either the existing, stored item or the new, incoming item to be the same as the other. (As with other fields, the ID of the existing item will be preferred by default, meaning the ID of the new item will be adjusted to match it.)
+
+**Example:** I often use soft merging with Google Photos. Because the Google Photos API strips location data (grrr), I also use Google Takeout to import an archive of my photos. This adds the location data. However, although the archive has coordinate data, it does NOT have IDs like the Google Photos API provides. Thus, soft merging prevents a duplication of my photo library in my timeline.
+
+To illustrate, I schedule this command to run regularly:
+
+```
+$ timeliner -merge=soft,id,meta -end=-720h get-latest google_photos/me
+```
+
+This uses the API to pull the latest photos up to 30 days old so I have time to delete unwanted photos from my library first. Notably, I enable soft merging and prefer the IDs and metadata given by the Google Photos API because they are richer and more precise.
+
+Occasionally I will use Takeout to download an archive to add location data to my timeline, which I import like this:
+
+```
+$ timeliner -merge=soft import takeout.tgz google_photos/me
+```
+
+Note that soft merging is still enabled, but I always prefer existing data when doing this because all I want to do is fill in the missing location data.
+
+This pattern takes advantage of soft merging and allows me to completely back up my Photos library locally, complete with location data, using both the API and Google Takeout.
 
 
 ### Pruning your timeline
@@ -207,6 +283,8 @@ $ timeliner -prune get-all ...
 ```
 
 However, this involves doing a complete listing of all the items. Pruning happens at the end. Any items not seen in the listing will be deleted. This also means that a full, uninterrupted listing is required, since resuming from a checkpoint yields an incomplete file listing. Pruning after a resumed listing will result in an error. (There's a TODO to improve this situation -- feel free to contribute! We just need to preserve the item listing along with the checkpoint.)
+
+Beware! If your timeline has extra items added from auxillary sources (for example, using `import` with an archive file in addition to the regular API pulls), the prune operation may not see those extra items and thus delete them. Always back up your timeline before doing a prune.
 
 
 ### Reauthenticating with a data source

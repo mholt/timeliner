@@ -151,51 +151,60 @@ type ProcessingOptions struct {
 }
 
 // MergeOptions configures how items are merged. By
-// default, newly listed items will be combined with
-// existing ones that have the same ID by filling in
-// values that are missing in the existing item.
+// default, items are not merged; if an item with a
+// duplicate ID is encountered, it will be replaced
+// with the new item (see the "reprocess" flag).
+// Merging has to be explicitly enabled.
 //
-// These options allow customizing that behavior. For
-// example, merges can be performed even if IDs aren't
-// the same but other properties are. Or properties in
-// the new item may override values in the existing
-// item, even if the existing item has a non-nil value.
-// This is useful if you want to prefer the form of
-// the item in the current listing over that of the
-// earlier listing.
+// Currently, the only way to perform a merge is to
+// enable "soft" merging: finding an item with the
+// same timestamp and either text data or filename.
+// Then, one of the item's IDs is updated to match
+// the other. These merge options configure how
+// the items are then combined.
+//
+// As it is possible and likely for both items to
+// have non-empty values for the same fields, these
+// "conflicts" must be resolved non-interactively.
+// By default, a merge conflict prefers existing
+// values (old item's field) over the new one, and
+// the new one only fills in missing values. (This
+// seems safest.) However, these merge options allow
+// you to customize that behavior and overwrite
+// existing values with the new item's fields (only
+// happens if new item's field is non-empty, i.e.
+// a merge will never delete existing data).
 type MergeOptions struct {
+	// Enables "soft" merging.
+	//
 	// If true, an item may be merged if it is likely
 	// to be the same as an existing item, even if the
-	// item's ID is different. For example, if a
+	// item IDs are different. For example, if a
 	// service has multiple ways of listing items, but
 	// does not provide a consistent ID for the same
-	// item across listing methods, a soft merge will
-	// allow the processing to treat them as the same
-	// as long as other fields match: timestamp, and
-	// either data text or data filename.
+	// item across listings, a soft merge will allow the
+	// processing to treat them as the same as long as
+	// other fields match: timestamp, and either data text
+	// or data filename.
 	SoftMerge bool
 
-	// Keep existing item's ID. This option only has
-	// any effect if SoftMerge is true, since merges
-	// are only performed on items with the same ID
-	// by default. (If SoftMerge is true, the item IDs
-	// may differ, thus this option takes effect.)
-	PreferExistingID bool
+	// Overwrite existing (old) item's ID with the ID
+	// provided by the current (new) item.
+	PreferNewID bool
 
-	// Keep existing item's timestamp.
-	PreferExistingTimestamp bool
+	// Overwrite existing item's text data.
+	PreferNewDataText bool
 
-	// Keep existing item's text data.
-	PreferExistingDataText bool
+	// Overwrite existing item's data file.
+	PreferNewDataFile bool
 
-	// Keep existing item's data file.
-	PreferExistingDataFile bool
+	// Overwrite existing item's metadata.
+	PreferNewMetadata bool
 }
 
 // ListingOptions specifies parameters for listing items
 // from a data source. Some data sources might not be
 // able to honor all fields.
-// TODO: maybe ListOptions instead?
 type ListingOptions struct {
 	// A file from which to read the data.
 	Filename string

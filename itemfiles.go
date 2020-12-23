@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-// downloadItemFile ... TODO.
+// downloadItemFile ... TODO: finish godoc.
 func (t *Timeline) downloadItemFile(src io.ReadCloser, dest *os.File, h hash.Hash) error {
 	if src == nil {
 		return fmt.Errorf("missing reader with which to download file")
@@ -50,7 +50,6 @@ func (t *Timeline) downloadItemFile(src io.ReadCloser, dest *os.File, h hash.Has
 // with its plain, canonical data file name, then improvising
 // and making unique if necessary. If there is no error, the
 // return value is always a usable data file name.
-// TODO: fix godoc
 func (t *Timeline) openUniqueCanonicalItemDataFile(it Item, dataSourceID string) (*os.File, *string, error) {
 	if dataSourceID == "" {
 		return nil, nil, fmt.Errorf("missing service ID")
@@ -96,7 +95,7 @@ func (t *Timeline) openUniqueCanonicalItemDataFile(it Item, dataSourceID string)
 // will end with a trailing slash (i.e. the path's last component empty).
 // Things considered deterministic for filename construction include the
 // item's filename, the item's original ID, and its timestamp.
-// TODO: fix godoc
+// TODO: fix godoc (this returns only the name now, not the whole dir)
 func (t *Timeline) canonicalItemDataFileName(it Item, dataSourceID string) string {
 	// ideally, the filename is simply the one provided with the item
 	var filename string
@@ -158,25 +157,7 @@ func (t *Timeline) ensureDataFileNameShortEnough(filename string) string {
 	return filename
 }
 
-// func ensureDataFileNameUnique(canonicalDataFileName string, maxTries int) (string, error) {
-// 	if maxTries < 1 {
-// 		panic("maxTries must be at least 1")
-// 	}
-// 	lastAppend := path.Ext(canonicalDataFileName)
-// 	for i := 0; i < maxTries; i++ {
-// 		if !datafileExists(canonicalDataFileName) {
-// 			return canonicalDataFileName, nil
-// 		}
-// 		ext := path.Ext(canonicalDataFileName)
-// 		canonicalDataFileName = strings.TrimSuffix(canonicalDataFileName, lastAppend)
-// 		lastAppend = fmt.Sprintf("_%d%s", i+2, ext) // start at 1, but actually 2 because first file is "1"
-// 		canonicalDataFileName += lastAppend
-// 	}
-// 	return "", fmt.Errorf("could not find an available filename for %s in %d iterations",
-// 		canonicalDataFileName, maxTries)
-// }
-
-// TODO/NOTE: If changing a file name, all items with same data_hash must also be updated to use same file name
+// TODO:/NOTE: If changing a file name, all items with same data_hash must also be updated to use same file name
 func (t *Timeline) replaceWithExisting(canonical *string, checksumBase64 string, itemRowID int64) error {
 	if canonical == nil || *canonical == "" || checksumBase64 == "" {
 		return fmt.Errorf("missing data filename and/or hash of contents")

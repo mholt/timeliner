@@ -34,8 +34,7 @@ func init() {
 	flag.BoolVar(&prune, "prune", prune, "When finishing, delete items not found on remote (download-all or import only)")
 	flag.BoolVar(&integrity, "integrity", integrity, "Perform integrity check on existing items and reprocess if needed (download-all or import only)")
 	flag.BoolVar(&reprocess, "reprocess", reprocess, "Reprocess every item that has not been modified locally (download-all or import only)")
-	flag.BoolVar(&softMerge, "softmerge", softMerge, "Merge incoming data with existing row using 'soft' keys (account ID + item timestamp + one of text, filename, and hash)")
-	flag.StringVar(&keep, "keep", keep, "Comma-separated list of existing values to keep if merge is performed (preferring existing value): id,ts,text,file")
+	flag.StringVar(&merge, "merge", merge, "Comma-separated list of merge options: soft (required, enables 'soft' merging on: account+timestamp+text or filename), and values to overwrite: id,text,file,metadata")
 
 	flag.StringVar(&tfStartInput, "start", "", "Timeframe start (relative=duration, absolute=YYYY/MM/DD)")
 	flag.StringVar(&tfEndInput, "end", "", "Timeframe end (relative=duration, absolute=YYYY/MM/DD)")
@@ -120,29 +119,35 @@ func main() {
 	}
 
 	// make the processing options
-	mergeOptions := timeliner.MergeOptions{SoftMerge: softMerge}
-	keepFields := strings.Split(keep, ",")
-	for _, val := range keepFields {
+	var mergeOpt timeliner.MergeOptions
+	mergeOptVals := strings.Split(merge, ",")
+	for _, val := range mergeOptVals {
 		switch val {
 		case "":
+		case "soft":
+			mergeOpt.SoftMerge = true
 		case "id":
-			mergeOptions.PreferExistingID = true
-		case "ts":
-			mergeOptions.PreferExistingTimestamp = true
+			mergeOpt.PreferNewID = true
 		case "text":
-			mergeOptions.PreferExistingDataText = true
+			mergeOpt.PreferNewDataText = true
 		case "file":
-			mergeOptions.PreferExistingDataFile = true
+			mergeOpt.PreferNewDataFile = true
+		case "meta":
+			mergeOpt.PreferNewMetadata = true
 		default:
-			log.Fatalf("[FATAL] Unrecognized value for 'keep' argument: '%s'", val)
+			log.Fatalf("[FATAL] Unrecognized merge option: '%s'", val)
 		}
+	}
+	if !mergeOpt.SoftMerge && (mergeOpt.PreferNewID || mergeOpt.PreferNewDataText || mergeOpt.PreferNewDataFile || mergeOpt.PreferNewMetadata) {
+		// for now, the only kind of merging is "soft" merging, so if it is not enabled but other merge options are set, that's probably a user error
+		log.Fatal("[FATAL] Merge options are specified but merging is not enabled (-merge=soft); only soft merging is implemented")
 	}
 	procOpt := timeliner.ProcessingOptions{
 		Reprocess: reprocess,
 		Prune:     prune,
 		Integrity: integrity,
 		Timeframe: tf,
-		Merge:     mergeOptions,
+		Merge:     mergeOpt,
 	}
 
 	// make a client for each account
@@ -375,8 +380,7 @@ var (
 	integrity bool
 	prune     bool
 	reprocess bool
-	softMerge bool
-	keep      string
+	merge     string
 
 	tfStartInput, tfEndInput string
 

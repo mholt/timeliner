@@ -282,17 +282,15 @@ func (wc *WrappedClient) storeItemFromService(it Item, timestamp time.Time, proc
 				return ir.ID, nil
 			}
 
-			// update our decision to process the data file; we know we already have this item
-			// so a merge is taking place; so now this depends on the merge configuration and
-			// whether the existing item has a data file
-			processDataFile = processDataFile && (ir.DataFile == nil || !procOpt.Merge.PreferExistingDataFile)
+			// update our decision to process the data file; we know we already have this item, so only keep the
+			// new data file if this item has a data file and either: the old item does not have one; we are
+			// reprocessing (meaning replacing old items, not merging); or we are merging and the user prefers
+			// new data files over old ones
+			processDataFile = processDataFile && (ir.DataFile == nil || !doingSoftMerge || procOpt.Merge.PreferNewDataFile)
 
-			// if there is an existing data file, and this new item has a data file,
-			// and the merge configuration does NOT prefer existing file over new one,
-			// then we know we will be replacing the existing file, so move it out of
-			// the way temporarily as a safe measure, and also because our
-			// filename-generator will not allow a file to be overwritten, but we want
-			// to replace the existing file in this case...
+			// if we are in fact processing this data file, move any old one out of the way temporarily
+			// as a safe measure, and also because our filename-generator will not allow a file to be
+			// overwritten, but we want to replace the existing file in this case...
 			if processDataFile {
 				origFile := wc.tl.fullpath(*ir.DataFile)
 				bakFile := wc.tl.fullpath(*ir.DataFile + ".bak")
@@ -322,6 +320,7 @@ func (wc *WrappedClient) storeItemFromService(it Item, timestamp time.Time, proc
 		}
 	}
 
+	// get the filename for the data file if we are processing it
 	var dataFileName *string
 	var datafile *os.File
 	if processDataFile {
@@ -338,50 +337,13 @@ func (wc *WrappedClient) storeItemFromService(it Item, timestamp time.Time, proc
 		return 0, fmt.Errorf("assembling item for storage: %v", err)
 	}
 
-	// honor relevant merge options
-	timestampCoal, dataTextCoal := "COALESCE(?, timestamp)", "COALESCE(?, data_text)"
-	if procOpt.Merge.PreferExistingTimestamp {
-		timestampCoal = "COALESCE(timestamp, ?)"
-	}
-	if procOpt.Merge.PreferExistingDataText {
-		dataTextCoal = "COALESCE(data_text, ?)"
-	}
-
-	// insert into the DB if it does not exist, and if it does, we update the existing
-	// row such that we usually prefer the new value, but if the new value is nil, keep
-	// the existing value (this is mostly an additive "merge" of the stored row with
-	// the incoming row, except that if both values are not null, we overwrite existing
-	// value with the new one); 'coalesce(?, field)' means "store new value if not null,
-	// otherwise keep existing value"; i.e. the incoming data is authoritative unless it
-	// is missing, in which case we keep what we have
-	_, err = wc.tl.db.Exec(`INSERT INTO items
-			(account_id, original_id, person_id, timestamp, stored,
-				class, mime_type, data_text, data_file, data_hash, metadata,
-				latitude, longitude)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT (account_id, original_id) DO UPDATE
-			SET person_id=COALESCE(?, person_id),
-				timestamp=`+timestampCoal+`,
-				stored=COALESCE(?, stored),
-				class=COALESCE(?, timestamp),
-				mime_type=COALESCE(?, mime_type),
-				data_text=`+dataTextCoal+`,
-				data_file=COALESCE(?, data_file),
-				data_hash=COALESCE(?, data_hash),
-				metadata=COALESCE(?, metadata),
-				latitude=COALESCE(?, latitude),
-				longitude=COALESCE(?, longitude)`,
-		ir.AccountID, ir.OriginalID, ir.PersonID, ir.Timestamp.Unix(), ir.Stored.Unix(),
-		ir.Class, ir.MIMEType, ir.DataText, ir.DataFile, ir.DataHash, ir.metaGob,
-		ir.Latitude, ir.Longitude,
-		ir.PersonID, ir.Timestamp.Unix(), ir.Stored.Unix(), ir.Class, ir.MIMEType, ir.DataText,
-		ir.DataFile, ir.DataHash, ir.metaGob, ir.Latitude, ir.Longitude)
+	// run the database query to insert or update the item
+	err = wc.insertOrUpdateItem(ir, doingSoftMerge, procOpt)
 	if err != nil {
 		return 0, fmt.Errorf("storing item in database: %v (item_id=%v)", err, ir.OriginalID)
 	}
 
-	// get the item's row ID (this works regardless of whether
-	// the last query was an insert or an update)
+	// get the item's row ID (this works regardless of whether the last query was an insert or an update)
 	var itemRowID int64
 	err = wc.tl.db.QueryRow(`SELECT id FROM items
 		WHERE account_id=? AND original_id=? LIMIT 1`,
@@ -471,7 +433,7 @@ func (wc *WrappedClient) shouldProcessExistingItem(it Item, dbItem ItemRow, doin
 
 	// finally, if the user wants to reprocess anyway, then do so;
 	// or if we are doing a soft merge (merging one identical item
-	// into an existing one), always reprocess so that the merge
+	// into an existing one), always return true so that the merge
 	// will actually take place
 	return procOpt.Reprocess || doingSoftMerge
 }
@@ -594,8 +556,8 @@ func (wc *WrappedClient) softMerge(it Item, procOpt ProcessingOptions) (string, 
 
 	// if configured to keep existing ID, make sure the caller knows to use the
 	// existing/old ID rather than the ID associated with the current/new item
-	if procOpt.Merge.PreferExistingID {
-		log.Printf("[INFO] Soft merging new item with id=%s into row %d with item id=%s (preserved item ID)", newOriginalID, rowID, *oldOriginalID)
+	if !procOpt.Merge.PreferNewID {
+		log.Printf("[INFO] Soft merging new item with id=%s into row %d with existing item id=%s (using existing item ID)", newOriginalID, rowID, *oldOriginalID)
 		return *oldOriginalID, true, nil
 	}
 
@@ -608,7 +570,7 @@ func (wc *WrappedClient) softMerge(it Item, procOpt ProcessingOptions) (string, 
 			err, rowID, *oldOriginalID, newOriginalID)
 	}
 
-	log.Printf("[INFO] Soft merging new item with id=%s into row %d with item id=%s (changed item ID)", newOriginalID, rowID, *oldOriginalID)
+	log.Printf("[INFO] Soft merging new item with id=%s into row %d with existing item id=%s (changed item ID)", newOriginalID, rowID, *oldOriginalID)
 
 	return newOriginalID, true, nil
 }
@@ -696,6 +658,71 @@ func (wc *WrappedClient) loadItemRow(accountID int64, originalID string) (ItemRo
 	}
 
 	return ir, nil
+}
+
+// insertOrUpdateItem inserts the fully-populated ir into the database or, if there is a conflict on
+// the item's account_id and original_id, it updates the existing row. If softMerge is true, the
+// update is an additive merge defined by procOpt; otherwise, updates always replace the old values.
+func (wc *WrappedClient) insertOrUpdateItem(ir ItemRow, softMerge bool, procOpt ProcessingOptions) error {
+	fieldPersonID, fieldTimestamp, fieldStored, fieldClass,
+		fieldMimeType, fieldDataText, fieldDataFile, fieldDataHash,
+		fieldMetadata, fieldLatitude, fieldLongitude := "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?"
+
+	if softMerge {
+		// when merging, prefer existing value by default (i.e. by
+		// default, merging is only additive with new values and does
+		// not replace existing fields when there are conflicts);
+		// this seems safer (user must opt-in to overwrite data)
+		fieldPersonID = "COALESCE(person_id, ?)"
+		fieldTimestamp = "COALESCE(timestamp, ?)"
+		fieldClass = "COALESCE(class, ?)"
+		fieldMimeType = "COALESCE(mime_type, ?)"
+		fieldDataText = "COALESCE(data_text, ?)"
+		fieldDataFile = "COALESCE(data_file, ?)"
+		fieldDataHash = "COALESCE(data_hash, ?)"
+		fieldMetadata = "COALESCE(metadata, ?)"
+		fieldLatitude = "COALESCE(latitude, ?)"
+		fieldLongitude = "COALESCE(longitude, ?)"
+
+		if procOpt.Merge.PreferNewDataText {
+			fieldDataText = "COALESCE(?, data_text)"
+		}
+		if procOpt.Merge.PreferNewMetadata {
+			fieldMetadata = "COALESCE(?, metadata)"
+		}
+	}
+
+	// insert into the DB if it does not exist, and if it does, we update the existing
+	// row such that we usually prefer the new value, but if the new value is nil, keep
+	// the existing value (this is mostly an additive "merge" of the stored row with
+	// the incoming row, except that if both values are not null, we overwrite existing
+	// value with the new one); 'coalesce(?, field)' means "store new value if not null,
+	// otherwise keep existing value"; i.e. the incoming data is authoritative unless it
+	// is missing, in which case we keep what we have
+	_, err := wc.tl.db.Exec(`INSERT INTO items
+			(account_id, original_id, person_id, timestamp, stored,
+				class, mime_type, data_text, data_file, data_hash, metadata,
+				latitude, longitude)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT (account_id, original_id) DO UPDATE
+			SET person_id=`+fieldPersonID+`,
+				timestamp=`+fieldTimestamp+`,
+				stored=`+fieldStored+`,
+				class=`+fieldClass+`,
+				mime_type=`+fieldMimeType+`,
+				data_text=`+fieldDataText+`,
+				data_file=`+fieldDataFile+`,
+				data_hash=`+fieldDataHash+`,
+				metadata=`+fieldMetadata+`,
+				latitude=`+fieldLatitude+`,
+				longitude=`+fieldLongitude,
+		ir.AccountID, ir.OriginalID, ir.PersonID, ir.Timestamp.Unix(), ir.Stored.Unix(),
+		ir.Class, ir.MIMEType, ir.DataText, ir.DataFile, ir.DataHash, ir.metaGob,
+		ir.Latitude, ir.Longitude,
+		ir.PersonID, ir.Timestamp.Unix(), ir.Stored.Unix(), ir.Class, ir.MIMEType, ir.DataText,
+		ir.DataFile, ir.DataHash, ir.metaGob, ir.Latitude, ir.Longitude)
+
+	return err
 }
 
 // itemRowIDFromOriginalID returns an item's row ID from the ID
