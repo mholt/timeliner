@@ -27,9 +27,6 @@ func (wc *WrappedClient) beginProcessing(cc concurrentCuckoo, po ProcessingOptio
 		go func(i int) {
 			defer wg.Done()
 			for ig := range ch {
-				if ig == nil {
-					continue
-				}
 				_, err := wc.processItemGraph(ig, &recursiveState{
 					timestamp: time.Now(),
 					procOpt:   po,
@@ -38,8 +35,7 @@ func (wc *WrappedClient) beginProcessing(cc concurrentCuckoo, po ProcessingOptio
 					cuckoo:    cc,
 				})
 				if err != nil {
-					log.Printf("[ERROR][%s/%s] Processing item graph: %v",
-						wc.ds.ID, wc.acc.UserID, err)
+					log.Printf("[ERROR] %s: processing item graph: %v", wc.acc, err)
 				}
 			}
 		}(i)
@@ -65,9 +61,25 @@ type recursiveState struct {
 }
 
 func (wc *WrappedClient) processItemGraph(ig *ItemGraph, state *recursiveState) (int64, error) {
+	if ig == nil {
+		return 0, nil
+	}
+
 	// don't visit a node twice
 	if igID, ok := state.seen[ig]; ok {
+		if state.procOpt.Verbose {
+			log.Printf("[DEBUG] %s: item graph already visited: %p", wc.acc, ig)
+		}
 		return igID, nil
+	}
+
+	if state.procOpt.Verbose {
+		var nodeItemID string
+		if ig.Node != nil {
+			nodeItemID = ig.Node.ID()
+		}
+		log.Printf("[DEBUG] %s: visiting item graph %p (node_item_id=%s edges=%d collections=%d relations=%d)",
+			wc.acc, ig, nodeItemID, len(ig.Edges), len(ig.Collections), len(ig.Relations))
 	}
 
 	var igRowID int64
@@ -279,6 +291,10 @@ func (wc *WrappedClient) storeItemFromService(it Item, timestamp time.Time, proc
 			// already have it
 
 			if !wc.shouldProcessExistingItem(it, ir, doingSoftMerge, procOpt) {
+				if procOpt.Verbose {
+					log.Printf("[DEBUG] %s: skipping processing of existing item (item_id=%s item_row_id=%d soft_merge=%t)",
+						wc.acc, itemOriginalID, ir.ID, doingSoftMerge)
+				}
 				return ir.ID, nil
 			}
 
@@ -307,12 +323,12 @@ func (wc *WrappedClient) storeItemFromService(it Item, timestamp time.Time, proc
 					if err == nil {
 						err := os.Remove(bakFile)
 						if err != nil && !os.IsNotExist(err) {
-							log.Printf("[ERROR] Deleting data file backup: %v", err)
+							log.Printf("[ERROR] deleting data file backup: %v", err)
 						}
 					} else {
 						err := os.Rename(bakFile, origFile)
 						if err != nil && !os.IsNotExist(err) {
-							log.Printf("[ERROR] Restoring original data file from backup: %v", err)
+							log.Printf("[ERROR] restoring original data file from backup: %v", err)
 						}
 					}
 				}()
@@ -352,11 +368,16 @@ func (wc *WrappedClient) storeItemFromService(it Item, timestamp time.Time, proc
 		return 0, fmt.Errorf("getting item row ID: %v", err)
 	}
 
+	if procOpt.Verbose {
+		log.Printf("[DEBUG] %s: stored or updated item in database (item_id=%s item_row_id=%d soft_merge=%t)",
+			wc.acc, itemOriginalID, itemRowID, doingSoftMerge)
+	}
+
 	// if there is a data file, download it and compute its checksum;
 	// then update the item's row in the DB with its name and checksum
 	if processDataFile {
 		h := sha256.New()
-		err := wc.tl.downloadItemFile(rc, datafile, h)
+		dataFileSize, err := wc.tl.downloadItemFile(rc, datafile, h)
 		if err != nil {
 			return 0, fmt.Errorf("downloading data file: %v (item_id=%v)", err, itemRowID)
 		}
@@ -376,9 +397,14 @@ func (wc *WrappedClient) storeItemFromService(it Item, timestamp time.Time, proc
 		_, err = wc.tl.db.Exec(`UPDATE items SET data_hash=? WHERE id=?`, // TODO: LIMIT 1... (see https://github.com/mattn/go-sqlite3/pull/802)
 			b64hash, itemRowID)
 		if err != nil {
-			log.Printf("[ERROR][%s/%s] Updating item's data file hash in DB: %v; cleaning up data file: %s (item_id=%d)",
-				wc.ds.ID, wc.acc.UserID, err, datafile.Name(), itemRowID)
+			log.Printf("[ERROR] %s: updating item's data file hash in DB: %v; cleaning up data file: %s (item_id=%d)",
+				wc.acc, err, datafile.Name(), itemRowID)
 			os.Remove(wc.tl.fullpath(*dataFileName))
+		}
+
+		if procOpt.Verbose {
+			log.Printf("[DEBUG] %s: downloaded data file (item_id=%s filename=%s size=%d)",
+				wc.acc, itemOriginalID, *dataFileName, dataFileSize)
 		}
 	}
 
@@ -390,22 +416,22 @@ func (wc *WrappedClient) shouldProcessExistingItem(it Item, dbItem ItemRow, doin
 	if procOpt.Integrity && dbItem.DataFile != nil && dbItem.DataHash != nil {
 		datafile, err := os.Open(wc.tl.fullpath(*dbItem.DataFile))
 		if err != nil {
-			log.Printf("[ERROR][%s/%s] Integrity check: opening existing data file: %v; reprocessing (item_id=%d)",
-				wc.ds.ID, wc.acc.UserID, err, dbItem.ID)
+			log.Printf("[ERROR] %s: integrity check: opening existing data file: %v; reprocessing (item_id=%d)",
+				wc.acc, err, dbItem.ID)
 			return true
 		}
 		defer datafile.Close()
 		h := sha256.New()
 		_, err = io.Copy(h, datafile)
 		if err != nil {
-			log.Printf("[ERROR][%s/%s] Integrity check: reading existing data file: %v; reprocessing (item_id=%d)",
-				wc.ds.ID, wc.acc.UserID, err, dbItem.ID)
+			log.Printf("[ERROR] %s: integrity check: reading existing data file: %v; reprocessing (item_id=%d)",
+				wc.acc, err, dbItem.ID)
 			return true
 		}
 		b64hash := base64.StdEncoding.EncodeToString(h.Sum(nil))
 		if b64hash != *dbItem.DataHash {
-			log.Printf("[ERROR][%s/%s] Integrity check: checksum mismatch: expected %s, got %s; reprocessing (item_id=%d)",
-				wc.ds.ID, wc.acc.UserID, *dbItem.DataHash, b64hash, dbItem.ID)
+			log.Printf("[ERROR] %s: integrity check: checksum mismatch: expected %s, got %s; reprocessing (item_id=%d)",
+				wc.acc, *dbItem.DataHash, b64hash, dbItem.ID)
 			return true
 		}
 	}

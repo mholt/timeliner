@@ -46,6 +46,10 @@ func (acc Account) NewHTTPClient() (*http.Client, error) {
 	return httpClient, nil
 }
 
+func (acc Account) String() string {
+	return acc.DataSourceID + "/" + acc.UserID
+}
+
 // AddAccount authenticates userID with the service identified
 // within the application by dataSourceID, and then stores it in the
 // database. The account must not yet exist.

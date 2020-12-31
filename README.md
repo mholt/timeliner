@@ -152,7 +152,7 @@ $ timeliner get-all google_photos/you@gmail.com
 
 This process can take weeks if you have a large library. Even if you have a fast Internet connection, the client is carefully rate-limited to be a good API citizen, so the process will be slow.
 
-If you open your timeline folder in a file browser, you will see it start to fill up with your photos from Google Photos.
+If you open your timeline folder in a file browser, you will see it start to fill up with your photos from Google Photos. To see more verbose logging, use the `-v` flag (NOTE: this will drastically slow down processing that isn't bottlenecked by the network).
 
 Data sources may create checkpoints as they go. If so, `get-all` or `get-latest` will automatically resume the last listing if it was interrupted, but only if the same command is repeated (you can't resume a `get-latest` with `get-all`, for example, or with different timeframe parameters). In the case of Google Photos, each page of API results is checkpointed. Checkpoints are not intended for long-term pauses. In other words, a resume should happen fairly shortly after being interrupted, and should be resumed using the same command as before. (A checkpoint will be automatically resumed only if the command parameters are identical.)
 

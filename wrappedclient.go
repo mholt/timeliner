@@ -34,15 +34,20 @@ type WrappedClient struct {
 }
 
 // GetLatest gets the most recent items from wc. It does not prune or
-// reprocess; only meant for a quick pull. If there are no items pulled
-// yet, all items will be pulled. If until is not nil, the latest only
-// up to that timestamp will be pulled, and if until is after the latest
-// item, no items will be pulled.
-func (wc *WrappedClient) GetLatest(ctx context.Context, until *time.Time) error {
+// reprocess; only meant for a quick pull (error will be returned if
+// procOpt is not compatible). If there are no items pulled yet, all
+// items will be pulled. If procOpt.Timeframe.Until is not nil, the
+// latest only up to that timestamp will be pulled, and if until is
+// after the latest item, no items will be pulled.
+func (wc *WrappedClient) GetLatest(ctx context.Context, procOpt ProcessingOptions) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	ctx = context.WithValue(ctx, wrappedClientCtxKey, wc)
+
+	if procOpt.Reprocess || procOpt.Prune || procOpt.Integrity || procOpt.Timeframe.Since != nil {
+		return fmt.Errorf("get-latest does not support -reprocess, -prune, -integrity, or -start")
+	}
 
 	// get date and original ID of the most recent item for this
 	// account from the last successful run
@@ -57,7 +62,7 @@ func (wc *WrappedClient) GetLatest(ctx context.Context, until *time.Time) error 
 	}
 
 	// constrain the pull to the recent timeframe
-	timeframe := Timeframe{Until: until}
+	timeframe := Timeframe{Until: procOpt.Timeframe.Until}
 	if mostRecentTimestamp > 0 {
 		ts := time.Unix(mostRecentTimestamp, 0)
 		timeframe.Since = &ts
@@ -72,11 +77,12 @@ func (wc *WrappedClient) GetLatest(ctx context.Context, until *time.Time) error 
 
 	checkpoint := wc.prepareCheckpoint(timeframe)
 
-	wg, ch := wc.beginProcessing(concurrentCuckoo{}, ProcessingOptions{})
+	wg, ch := wc.beginProcessing(concurrentCuckoo{}, procOpt)
 
 	err := wc.Client.ListItems(ctx, ch, ListingOptions{
 		Timeframe:  timeframe,
 		Checkpoint: checkpoint,
+		Verbose:    procOpt.Verbose,
 	})
 	if err != nil {
 		return fmt.Errorf("getting items from service: %v", err)
@@ -119,7 +125,11 @@ func (wc *WrappedClient) GetAll(ctx context.Context, procOpt ProcessingOptions) 
 
 	wg, ch := wc.beginProcessing(cc, procOpt)
 
-	err := wc.Client.ListItems(ctx, ch, ListingOptions{Checkpoint: checkpoint, Timeframe: procOpt.Timeframe})
+	err := wc.Client.ListItems(ctx, ch, ListingOptions{
+		Checkpoint: checkpoint,
+		Timeframe:  procOpt.Timeframe,
+		Verbose:    procOpt.Verbose,
+	})
 	if err != nil {
 		return fmt.Errorf("getting items from service: %v", err)
 	}
@@ -198,6 +208,7 @@ func (wc *WrappedClient) Import(ctx context.Context, filename string, procOpt Pr
 		Filename:   filename,
 		Checkpoint: wc.acc.checkpoint,
 		Timeframe:  procOpt.Timeframe,
+		Verbose:    procOpt.Verbose,
 	})
 	if err != nil {
 		return fmt.Errorf("importing: %v", err)

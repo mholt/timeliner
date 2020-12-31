@@ -148,6 +148,7 @@ type ProcessingOptions struct {
 	Integrity bool
 	Timeframe Timeframe
 	Merge     MergeOptions
+	Verbose   bool
 }
 
 // MergeOptions configures how items are merged. By
@@ -217,4 +218,7 @@ type ListingOptions struct {
 	// A checkpoint from which to resume
 	// item retrieval.
 	Checkpoint []byte
+
+	// Enable verbose output (logs).
+	Verbose bool
 }

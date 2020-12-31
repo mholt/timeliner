@@ -84,11 +84,11 @@ func (c *Client) ListItems(ctx context.Context, itemChan chan<- *timeliner.ItemG
 	// get items and collections
 	errChan := make(chan error)
 	go func() {
-		err := c.listItems(ctx, itemChan, opt.Timeframe)
+		err := c.listItems(ctx, itemChan, opt)
 		errChan <- err
 	}()
 	go func() {
-		err := c.listCollections(ctx, itemChan, opt.Timeframe)
+		err := c.listCollections(ctx, itemChan, opt)
 		errChan <- err
 	}()
 
@@ -98,7 +98,7 @@ func (c *Client) ListItems(ctx context.Context, itemChan chan<- *timeliner.ItemG
 	for i := 0; i < 2; i++ {
 		err := <-errChan
 		if err != nil {
-			log.Printf("[ERROR][%s/%s] A listing goroutine errored: %v", DataSourceID, c.userID, err)
+			log.Printf("[ERROR] %s/%s: a listing goroutine errored: %v", DataSourceID, c.userID, err)
 			errs = append(errs, err.Error())
 		}
 	}
@@ -109,8 +109,7 @@ func (c *Client) ListItems(ctx context.Context, itemChan chan<- *timeliner.ItemG
 	return nil
 }
 
-func (c *Client) listItems(ctx context.Context, itemChan chan<- *timeliner.ItemGraph,
-	timeframe timeliner.Timeframe) error {
+func (c *Client) listItems(ctx context.Context, itemChan chan<- *timeliner.ItemGraph, opt timeliner.ListingOptions) error {
 	c.checkpoint.mu.Lock()
 	pageToken := c.checkpoint.ItemsNextPage
 	c.checkpoint.mu.Unlock()
@@ -121,7 +120,7 @@ func (c *Client) listItems(ctx context.Context, itemChan chan<- *timeliner.ItemG
 			return nil
 		default:
 			var err error
-			pageToken, err = c.getItemsNextPage(itemChan, pageToken, timeframe)
+			pageToken, err = c.getItemsNextPage(itemChan, pageToken, opt.Timeframe)
 			if err != nil {
 				return fmt.Errorf("getting items on next page: %v", err)
 			}
@@ -173,8 +172,7 @@ func (c *Client) getItemsNextPage(itemChan chan<- *timeliner.ItemGraph,
 // a timeframe in this search.
 //
 // See https://developers.google.com/photos/library/reference/rest/v1/mediaItems/search.
-func (c *Client) listCollections(ctx context.Context,
-	itemChan chan<- *timeliner.ItemGraph, timeframe timeliner.Timeframe) error {
+func (c *Client) listCollections(ctx context.Context, itemChan chan<- *timeliner.ItemGraph, opt timeliner.ListingOptions) error {
 	c.checkpoint.mu.Lock()
 	albumPageToken := c.checkpoint.AlbumsNextPage
 	c.checkpoint.mu.Unlock()
@@ -184,8 +182,13 @@ func (c *Client) listCollections(ctx context.Context,
 		case <-ctx.Done():
 			return nil
 		default:
+			if opt.Verbose {
+				log.Printf("[DEBUG] %s/%s: listing albums: next page (page_token=%s)",
+					DataSourceID, c.userID, albumPageToken)
+			}
+
 			var err error
-			albumPageToken, err = c.getAlbumsAndTheirItemsNextPage(itemChan, albumPageToken, timeframe)
+			albumPageToken, err = c.getAlbumsAndTheirItemsNextPage(itemChan, albumPageToken, opt)
 			if err != nil {
 				return err
 			}
@@ -202,7 +205,7 @@ func (c *Client) listCollections(ctx context.Context,
 }
 
 func (c *Client) getAlbumsAndTheirItemsNextPage(itemChan chan<- *timeliner.ItemGraph,
-	pageToken string, timeframe timeliner.Timeframe) (string, error) {
+	pageToken string, opt timeliner.ListingOptions) (string, error) {
 	vals := url.Values{
 		"pageToken": {pageToken},
 		"pageSize":  {"50"},
@@ -215,7 +218,12 @@ func (c *Client) getAlbumsAndTheirItemsNextPage(itemChan chan<- *timeliner.ItemG
 	}
 
 	for _, album := range respBody.Albums {
-		err = c.getAlbumItems(itemChan, album, timeframe)
+		if opt.Verbose {
+			log.Printf("[DEBUG] %s/%s: listing items in album: '%s' (album_id=%s item_count=%s)",
+				DataSourceID, c.userID, album.Title, album.ID, album.MediaItemsCount)
+		}
+
+		err = c.getAlbumItems(itemChan, album, opt)
 		if err != nil {
 			return "", err
 		}
@@ -224,15 +232,22 @@ func (c *Client) getAlbumsAndTheirItemsNextPage(itemChan chan<- *timeliner.ItemG
 	return respBody.NextPageToken, nil
 }
 
-func (c *Client) getAlbumItems(itemChan chan<- *timeliner.ItemGraph, album gpAlbum, timeframe timeliner.Timeframe) error {
+func (c *Client) getAlbumItems(itemChan chan<- *timeliner.ItemGraph, album gpAlbum, opt timeliner.ListingOptions) error {
 	var albumItemsNextPage string
 	var counter int
+
+	const pageSize = 100
 
 	for {
 		reqBody := listMediaItemsRequest{
 			AlbumID:   album.ID,
 			PageToken: albumItemsNextPage,
-			PageSize:  100,
+			PageSize:  pageSize,
+		}
+
+		if opt.Verbose {
+			log.Printf("[DEBUG] %s/%s: getting next page of media items in album (album_id=%s page_size=%d page_token=%s)",
+				DataSourceID, c.userID, album.ID, pageSize, albumItemsNextPage)
 		}
 
 		page, err := c.pageOfMediaItems(reqBody)
@@ -248,10 +263,10 @@ func (c *Client) getAlbumItems(itemChan chan<- *timeliner.ItemGraph, album gpAlb
 			// have to iterate all items in all albums, but at least we
 			// can just skip items that fall outside the timeframe...
 			ts := it.Timestamp()
-			if timeframe.Since != nil && ts.Before(*timeframe.Since) {
+			if opt.Timeframe.Since != nil && ts.Before(*opt.Timeframe.Since) {
 				continue
 			}
-			if timeframe.Until != nil && ts.After(*timeframe.Until) {
+			if opt.Timeframe.Until != nil && ts.After(*opt.Timeframe.Until) {
 				continue
 			}
 
@@ -297,7 +312,7 @@ func (c *Client) apiRequestWithRetry(method, endpoint string, reqBodyData, respI
 		var resp *http.Response
 		resp, err = c.apiRequest(method, endpoint, reqBodyData)
 		if err != nil {
-			log.Printf("[ERROR][%s/%s] Doing API request: >>> %v <<< - retrying... (attempt %d/%d)",
+			log.Printf("[ERROR] %s/%s: doing API request: >>> %v <<< - retrying... (attempt %d/%d)",
 				DataSourceID, c.userID, err, i+1, maxTries)
 			time.Sleep(10 * time.Second)
 			continue
@@ -315,14 +330,14 @@ func (c *Client) apiRequestWithRetry(method, endpoint string, reqBodyData, respI
 
 			// extra-long pause for rate limiting errors
 			if resp.StatusCode == http.StatusTooManyRequests {
-				log.Printf("[ERROR][%s/%s] Rate limited: HTTP %d: %s: %s - retrying in 35 seconds... (attempt %d/%d)",
+				log.Printf("[ERROR] %s/%s: rate limited: HTTP %d: %s: %s - retrying in 35 seconds... (attempt %d/%d)",
 					DataSourceID, c.userID, resp.StatusCode, resp.Status, bodyText, i+1, maxTries)
 				time.Sleep(35 * time.Second)
 				continue
 			}
 
 			// for any other error, wait a couple seconds and retry
-			log.Printf("[ERROR][%s/%s] Bad API response: %v - retrying... (attempt %d/%d)",
+			log.Printf("[ERROR] %s/%s: bad API response: %v - retrying... (attempt %d/%d)",
 				DataSourceID, c.userID, err, i+1, maxTries)
 			time.Sleep(10 * time.Second)
 			continue
@@ -333,7 +348,7 @@ func (c *Client) apiRequestWithRetry(method, endpoint string, reqBodyData, respI
 		if err != nil {
 			resp.Body.Close()
 			err = fmt.Errorf("decoding JSON: %v", err)
-			log.Printf("[ERROR][%s/%s] Reading API response: %v - retrying... (attempt %d/%d)",
+			log.Printf("[ERROR] %s/%s: reading API response: %v - retrying... (attempt %d/%d)",
 				DataSourceID, c.userID, err, i+1, maxTries)
 			time.Sleep(10 * time.Second)
 			continue
@@ -418,7 +433,7 @@ type checkpointInfo struct {
 func (ch *checkpointInfo) save(ctx context.Context) {
 	gobBytes, err := timeliner.MarshalGob(ch)
 	if err != nil {
-		log.Printf("[ERROR][%s] Encoding checkpoint: %v", DataSourceID, err)
+		log.Printf("[ERROR] %s: encoding checkpoint: %v", DataSourceID, err)
 	}
 	timeliner.Checkpoint(ctx, gobBytes)
 }
@@ -431,6 +446,6 @@ func (ch *checkpointInfo) load(checkpointGob []byte) {
 	}
 	err := timeliner.UnmarshalGob(checkpointGob, ch)
 	if err != nil {
-		log.Printf("[ERROR][%s] Decoding checkpoint: %v", DataSourceID, err)
+		log.Printf("[ERROR] %s: decoding checkpoint: %v", DataSourceID, err)
 	}
 }

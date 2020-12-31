@@ -29,6 +29,7 @@ func init() {
 	flag.StringVar(&repoDir, "repo", repoDir, "The path to the folder of the repository")
 	flag.IntVar(&maxRetries, "max-retries", maxRetries, "If > 0, will retry on failure at most this many times")
 	flag.DurationVar(&retryAfter, "retry-after", retryAfter, "If > 0, will wait this long between retries")
+	flag.BoolVar(&verbose, "v", verbose, "Verbose output (can be very slow if data source isn't bottlenecked by network)")
 
 	flag.BoolVar(&prune, "prune", prune, "When finishing, delete items not found on remote (download-all or import only)")
 	flag.BoolVar(&integrity, "integrity", integrity, "Perform integrity check on existing items and reprocess if needed (download-all or import only)")
@@ -147,6 +148,7 @@ func main() {
 		Integrity: integrity,
 		Timeframe: tf,
 		Merge:     mergeOpt,
+		Verbose:   verbose,
 	}
 
 	// make a client for each account
@@ -157,7 +159,7 @@ func main() {
 			log.Fatalf("[FATAL][%s/%s] Creating data source client: %v", a.dataSourceID, a.userID, err)
 		}
 
-		// configure the client
+		// configure the client (TODO: this is not good design; should happen in their own packages)
 		switch v := wc.Client.(type) {
 		case *twitter.Client:
 			v.Retweets = twitterRetweets
@@ -185,7 +187,7 @@ func main() {
 					if retryNum > 0 {
 						log.Println("[INFO] Retrying command")
 					}
-					err := wc.GetLatest(ctx, tf.Until)
+					err := wc.GetLatest(ctx, procOpt)
 					if err != nil {
 						log.Printf("[ERROR][%s/%s] Getting latest: %v",
 							wc.DataSourceID(), wc.UserID(), err)
@@ -375,6 +377,7 @@ var (
 	configFile = "timeliner.toml"
 	maxRetries int
 	retryAfter time.Duration
+	verbose    bool
 
 	integrity bool
 	prune     bool

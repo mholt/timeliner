@@ -70,7 +70,7 @@ func (m mediaItem) DataFileReader() (io.ReadCloser, error) {
 		resp, err = http.Get(u)
 		if err != nil {
 			err = fmt.Errorf("getting media contents: %v", err)
-			log.Printf("[ERROR][%s] %s: %v - retrying... (attempt %d/%d)", DataSourceID, u, err, i+1, maxTries)
+			log.Printf("[ERROR] %s: %s: %v - retrying... (attempt %d/%d)", DataSourceID, u, err, i+1, maxTries)
 			time.Sleep(30 * time.Second)
 			continue
 		}
@@ -84,7 +84,7 @@ func (m mediaItem) DataFileReader() (io.ReadCloser, error) {
 				err = fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
 			}
 
-			log.Printf("[ERROR][%s] %s: Bad response: %v - waiting and retrying... (attempt %d/%d)",
+			log.Printf("[ERROR %s: %s: Bad response: %v - waiting and retrying... (attempt %d/%d)",
 				DataSourceID, u, err, i+1, maxTries)
 			time.Sleep(15 * time.Second)
 			continue

@@ -18,12 +18,12 @@ import (
 )
 
 // downloadItemFile ... TODO: finish godoc.
-func (t *Timeline) downloadItemFile(src io.ReadCloser, dest *os.File, h hash.Hash) error {
+func (t *Timeline) downloadItemFile(src io.ReadCloser, dest *os.File, h hash.Hash) (int64, error) {
 	if src == nil {
-		return fmt.Errorf("missing reader with which to download file")
+		return 0, fmt.Errorf("missing reader with which to download file")
 	}
 	if dest == nil {
-		return fmt.Errorf("missing file to download into")
+		return 0, fmt.Errorf("missing file to download into")
 	}
 
 	// TODO: What if file already exists on disk (byte-for-byte)? - i.e. data_hash in DB has a duplicate
@@ -31,18 +31,19 @@ func (t *Timeline) downloadItemFile(src io.ReadCloser, dest *os.File, h hash.Has
 	// give the hasher a copy of the file bytes
 	tr := io.TeeReader(src, h)
 
-	if _, err := io.Copy(dest, tr); err != nil {
+	n, err := io.Copy(dest, tr)
+	if err != nil {
 		os.Remove(dest.Name())
-		return fmt.Errorf("copying contents: %v", err)
+		return n, fmt.Errorf("copying contents: %v", err)
 	}
 	if err := dest.Sync(); err != nil {
 		os.Remove(dest.Name())
-		return fmt.Errorf("syncing file: %v", err)
+		return n, fmt.Errorf("syncing file: %v", err)
 	}
 
 	// TODO: If mime type is photo or video, extract most important EXIF data and return it for storage in DB?
 
-	return nil
+	return n, nil
 }
 
 // makeUniqueCanonicalItemDataFileName returns an available

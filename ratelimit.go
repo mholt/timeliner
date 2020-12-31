@@ -17,9 +17,7 @@ type RateLimit struct {
 // NewRateLimitedRoundTripper adds rate limiting to rt based on the rate
 // limiting policy registered by the data source associated with acc.
 func (acc Account) NewRateLimitedRoundTripper(rt http.RoundTripper) http.RoundTripper {
-	rlKey := acc.DataSourceID + "_" + acc.UserID
-
-	rl, ok := acc.t.rateLimiters[rlKey]
+	rl, ok := acc.t.rateLimiters[acc.String()]
 
 	if !ok && acc.ds.RateLimit.RequestsPerHour > 0 {
 		secondsBetweenReqs := 60.0 / (float64(acc.ds.RateLimit.RequestsPerHour) / 60.0)
@@ -41,7 +39,7 @@ func (acc Account) NewRateLimitedRoundTripper(rt http.RoundTripper) http.RoundTr
 			}
 		}()
 
-		acc.t.rateLimiters[rlKey] = rl
+		acc.t.rateLimiters[acc.String()] = rl
 	}
 
 	return rateLimitedRoundTripper{
