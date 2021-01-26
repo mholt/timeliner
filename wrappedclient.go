@@ -63,7 +63,7 @@ func (wc *WrappedClient) GetLatest(ctx context.Context, procOpt ProcessingOption
 
 	// constrain the pull to the recent timeframe
 	timeframe := Timeframe{Until: procOpt.Timeframe.Until}
-	if mostRecentTimestamp > 0 {
+	if mostRecentTimestamp > 0 && timeframe.Until != nil {
 		ts := time.Unix(mostRecentTimestamp, 0)
 		timeframe.Since = &ts
 		if timeframe.Until.Before(ts) {
