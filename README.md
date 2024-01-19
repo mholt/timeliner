@@ -16,6 +16,8 @@
 >
 > ### Where is it? What is the status of Timelinize?
 > Timelinize is still undergoing heavy development and is not yet release-worthy, but I have alpha versions that developers can preview if you wish. You can request access in an issue or via email. Timelinize has [a basic website](https://timelinize.com) now. The email address to reach me at is on that site.
+>
+> **You may wonder, why are there not more screenshots!?** A valid question. I would LOVE to show you but all the data I have to develop with is my own personal data, of course! It's hard to find parts of it that are not sensitive. I'm working on ways to either generate fake data or obfuscate real data for demo purposes. Then there will be more screenshots.
 > 
 > ### Why a new project?
 > Timeliner was originally a project called Photobak, for backing up your photos from Picasa (then Google Photos). Then I realized that I wanted to back up all the photos I put on Facebook, Twitter, and Instagram. And while I was at it, why not my Google Location History? The project evolved enough to warrant a new name, hence Timeliner. Well, the next evolution is here, and I feel like it finally starts to live up to the vision I originally had after Photobak: a complete, highly detailed archive of my digital content and life and that of my family's. The overall scope changed enough that it warranted a new name.
