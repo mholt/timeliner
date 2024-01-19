@@ -1,5 +1,74 @@
-Timeliner [![timeliner godoc](https://pkg.go.dev/badge/github.com/mholt/timeliner)](https://pkg.go.dev/github.com/mholt/timeliner)
-=========
+> [!NOTE]  
+> # Timeliner is being deprecated in favor of its successor, [Timelinize](https://timelinize.com). New development on this repo has stopped.
+>
+> Don't worry though&mdash;Timelinize is a huge improvement:
+> - **A web UI for viewing your data, finally!**
+> - CLI and JSON HTTP API for integrations, scripting, and automations.
+> - Same overall simple architecture: SQLite DB alongside a folder with your files.
+> - Open schema and self-hosted! You always have complete control over and access to your data. No DRM.
+> - Many more data sources.
+> - Major performance improvements.
+> - Bug fixes.
+>
+> **If you are interested in alpha testing Timelinize during the early developer previews, please let me know! I just ask that you be actively involved with our community on Discord during development and offer your feedback/ideas.** You can find my email address on the Timelinize website.
+> 
+> ## Timeliner :arrow_right: Timelinize FAQ
+>
+> ### Where is it? What is the status of Timelinize?
+> Timelinize is still undergoing heavy development and is not yet release-worthy, but I have alpha versions that developers can preview if you wish. You can request access in an issue or via email. Timelinize has [a basic website](https://timelinize.com) now. The email address to reach me at is on that site.
+> 
+> ### Why a new project?
+> Timeliner was originally a project called Photobak, for backing up your photos from Picasa (then Google Photos). Then I realized that I wanted to back up all the photos I put on Facebook, Twitter, and Instagram. And while I was at it, why not my Google Location History? The project evolved enough to warrant a new name, hence Timeliner. Well, the next evolution is here, and I feel like it finally starts to live up to the vision I originally had after Photobak: a complete, highly detailed archive of my digital content and life and that of my family's. The overall scope changed enough that it warranted a new name.
+>
+> Perhaps the biggest reason is the development of a UI, which hopefully makes the project accessible to many more people like my own family members. There are also technical reasons. Over the years I've found that Timeliner's method of ingesting data via API downloads is brittle, as services cut off free API access (see Twitter/X), or strip critical data when using APIs (see Google Photos). This necessitated hacking in alternate ways of augmenting one's timeline, e.g. importing a Google Takeout to replace the missing data from Google Photos' API. This is tedious and inelegant. Learning from lessons like this, I've redesigned Timelinize to be more flexible going forward.
+> 
+> ### Will Timelinize be open source?
+> Undecided. The schema is for sure going to be open. The project has taken an _exceptional_ amount of my time over the last decade, and that cost may be too high for me if everyone uses it for free. Because self-hosting is one of the primary values of this project, and I don't even _want_ to host your private data, selling a hosted version of the app as a way to make money isn't a favorable option. If Timelinize doesn't end up open source, it will likely have a very generous free tier.
+>
+> ### Will Timelinize send any of my data to someone's servers or store it anywhere else?
+> NO. Just like Timeliner, all your data is stored on your own computer and it doesn't go through any remote servers when you use Timelinize. You can verify this with tools like Wireshark. In the future, we have plans to implement sharing features so you can securely choose parts of your data/timeline to share with peers like your friends and family. I'm hoping that through technologies like Wireguard, Tailscale, or OpenZiti/zrok, we can implement those sharing features directly P2P, and the only interactions with our servers would be to coordinate the sharing and permissions.
+> 
+> ### Can Timelinize do everything Timeliner does?
+> Fundamentally, yes. The result is achieved differently though; in particular, API downloads have been shelved for now. To explain: Timeliner downloads data from APIs. Unfortunately, we've seen in the last several years that API offerings are brittle. Twitter/X cut off all free access, even to your own data; Google Photos strips location data from your own photos when downloaded via the API; etc. So while Timelinize has the ability to do API downloads, its primary method of ingesting data for now is importing files on disk, usually obtained from services' "takeout" or "export" services such as like Google Takeout or "Download your account data" pages, which has to be done manually. So, Timelinize is a little less "set it and forget it," but you will likely only need to do major imports about once every year or so. And I'm experimenting with ways to automate those, too.
+>
+> ### How different is Timelinize?
+> Well, the fact that it has a graphical UI makes it hugely different. But it still feels familiar. It has the same basic architecture: you import data that gets stored in a SQLite DB on your computer, except for binary data that gets stored in a folder adjacent to it. Everything is indexed and searchable. It's organized primarily by time. The main difference is it's much more capable.
+>
+> ### What are some improvements that Timelinize makes over Timeliner?
+> The schema has been greatly improved. Instead of focusing only on items as data (with an associated "person" for each item), Timelinize is more fully "entity-aware." An entity is a person, place, pet/animal, organization, etc; and each entity can have 1 or more defining attributes. An attribute may be like an email or phone number, account ID or username. Some attributes are identifying. This enables us to represent the same entity using multiple identifiers, which is useful when crossing data sources. You'll find that we can automatically connect the Sally Jane on your email, for example, as the same Sally Jane in your text messages, even if her display name is different (and if we don't, merging two duplicate entities is a cinch)! Attributes can also map to multiple entities, for example if two people share an email address, we can represent that.
+>
+> Another schema improvement is the representation of items. They now have multiple time fields: timestamp, timespan, timeframe, time_offset, and time_uncertainty. Combining these allows us to represent items that span time, have an uncertain time, have different time zones, or take place at an unknown time within some timeframe. (This is useful for location data when traveling, importing scans of old photos, etc.) We also store the original path or location of each item as well as its intermediate path or location. For example, items imported from iPhones have a location as originally found on the actual iPhone; they have a different path in the iPhone backup the data was imported from. We preserve both now so you can better trace back an item's origins.
+>
+> Timelinize imports data much faster as well.
+>
+> ### How can I view my data using Timelinize?
+> The web UI will launch with at least 6 ways to view your data:
+> 1. Timeline view
+> 2. Map view
+> 3. Conversation view
+> 4. Gallery view
+> 5. Raw item list
+> 6. Raw entity list
+>
+> The first four are "projections" of your data into a certain paradigm. A possible future projection may be a calendar. I'm sure we'll think of more, too.
+>
+> ### Is Timelinize a rewrite?
+> Technically yes, as I started with an empty `main()`. However, I brought over a lot of the code from Timeliner file-by-file. However... I ended up changing a lot of it, and completely rewrote the import logic into an all-new pipeline to improve performance and correctness. So the fundamental code concepts are still mostly intact (ItemGraph, Person, PersonAttribute, etc. -- though they have names like Graph, Entity, and Attribute now). I would say, "Much of it has been rewritten."
+> 
+> ### What is different about the CLI?
+> The Timelinize web UI uses a JSON HTTP API for its functionality. That same API is available for you to use, and from that, we also auto-generate a CLI. That means you can completely operate Timelinize through its CLI as much as its GUI and its API. Pretty cool! But yes, Timelinize is very much a breaking change over Timeliner.
+>
+> ### Will I be able to port my Timeliner repo to a Timelinize repo?
+> No, but that's actually a good thing, since Timelinize timelines are much more capable and detailed. Even if I did write code to port Timeliner data to Timelinize, you'd lose the magic of what Timelinize can offer.
+>
+> ### Do you have an ETA?
+> I do not have a timeline. The irony of this is not lost on me.
+
+
+Original docs (DEPRECATED) [![timeliner godoc](https://pkg.go.dev/badge/github.com/mholt/timeliner)](https://pkg.go.dev/github.com/mholt/timeliner)
+==========================
+
+
 
 Timeliner is a personal data aggregation utility. It collects all your digital things from pretty much anywhere and stores them on your own computer, indexes them, and projects them onto a single, unified timeline.
 
@@ -323,9 +392,11 @@ And all of this runs on your own computer: no one else has access to it, no one 
 
 ## Viewing your Timeline
 
-There is not yet a viewer for the timeline. For now, I've just been using [Table Plus](https://tableplus.io) to browse the SQLite database, and my file browser to look at the files in it. The important thing is that you have them, at least.
+**UPDATE:** [Timelinize](https://timelinize.com) is the successor to this project, and it has a fully-featured graphical web UI to view and manage your timeline data!
 
-However, a viewer would be really cool. It's something I've been wanting to do but don't have time for right now. Contributions are welcomed along these lines, but this feature _must_ be thoroughly discussed before any pull requests will be accepted to implement a timeline viewer. Thanks!
+~~There is not yet a viewer for the timeline. For now, I've just been using [Table Plus](https://tableplus.io) to browse the SQLite database, and my file browser to look at the files in it. The important thing is that you have them, at least.~~
+
+~~However, a viewer would be really cool. It's something I've been wanting to do but don't have time for right now. Contributions are welcomed along these lines, but this feature _must_ be thoroughly discussed before any pull requests will be accepted to implement a timeline viewer. Thanks!~~
 
 
 ## Notes
@@ -335,5 +406,4 @@ Yeah, I know this is very similar to what [Perkeep](https://perkeep.org/) does. 
 
 ## License
 
-This project is licensed with AGPL. I chose this license because I do not want others to make proprietary software using this package. The point of this project is liberation of and control over one's own, personal data, and I want to ensure that this project won't be used in anything that would perpetuate the walled garden dilemma we already face today.
-
+This project is licensed with AGPL. I chose this license because I do not want others to make proprietary software using this package. The point of this project is liberation of and control over one's own, personal data, and I want to ensure that this project won't be used in anything that would perpetuate the walled garden dilemma we already face today. Even if this project's official successor has proprietary source code, I can ensure it will stay aligned with my values and the project's original goals.
